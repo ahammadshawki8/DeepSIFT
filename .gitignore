@@ -1,0 +1,65 @@
+# Environment
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+*.whl
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# RAG database (large binary)
+rag/db/
+rag/data/
+
+# Runtime outputs (case-specific, not for version control)
+exports/
+analysis/
+
+# Test cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Forensic images (never commit evidence)
+*.raw
+*.vmem
+*.mem
+*.E01
+*.e01
+*.dd
+*.img
+*.plaso
+
+# Logs
+*.log
+
+# Weasyprint / PDF output
+*.pdf
+
+# YARA compiled rules
+*.yarc

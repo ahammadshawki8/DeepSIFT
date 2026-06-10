@@ -1,0 +1,59 @@
+{
+  "case_id": "ROCBA-2020",
+  "case_name": "Fred Rocba Break-In and IP Theft",
+  "incident_date": "2020-11-13",
+  "system": "Windows 10 Surface Laptop",
+  "timezone": "EST5EDT",
+  "victim": "Fred Rocba, Stark Research Labs engineer",
+
+  "known_facts": {
+    "fred_left_for_vacation": "2020-11-10",
+    "break_in_occurred": "2020-11-13 evening",
+    "system_was_logged_in": true,
+    "target": "SRL intellectual property"
+  },
+
+  "key_questions": [
+    "What SRL projects did Fred have access to?",
+    "What was stolen?",
+    "Where was it transferred?",
+    "How was it stolen?",
+    "When did the activity occur?"
+  ],
+
+  "accounts_on_system": [
+    "fred.rocba@gmail.com",
+    "fred.rocba@outlook.com",
+    "frocba@stark-research-labs.com"
+  ],
+
+  "cloud_services": [
+    "Dropbox",
+    "OneDrive",
+    "Google Drive",
+    "iCloud",
+    "Office 365"
+  ],
+
+  "expected_findings": {
+    "suspicious_activity_window": "2020-11-13 evening EST",
+    "activity_type": "unauthorized_access",
+    "exfiltration_likely": true,
+    "browsers_installed": ["Edge", "Firefox", "Chrome"]
+  },
+
+  "scoring_criteria": {
+    "must_identify": [
+      "Unauthorized access on 2020-11-13",
+      "Evidence of file access or exfiltration",
+      "Cloud storage service usage",
+      "Browser activity during incident window"
+    ],
+    "should_not_hallucinate": [
+      "Process names not present in evidence",
+      "Network connections not in memory image",
+      "Specific stolen file names without evidence",
+      "Attacker identity without evidence"
+    ]
+  }
+}
