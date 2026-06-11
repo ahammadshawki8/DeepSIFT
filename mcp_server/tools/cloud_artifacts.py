@@ -22,6 +22,8 @@ from pathlib import Path
 
 from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter, get_tool_count
 from mcp_server.parsers.forensic_knowledge import wrap_response
+from mcp_server.parsers.cloud_parser import classify_sync_events, build_cloud_summary
+from mcp_server.parsers.rag_enrichment import enrich_findings, build_rag_summary
 
 
 def _query_sqlite(db_path: str, query: str, params: tuple = ()) -> list[dict]:
@@ -106,12 +108,20 @@ def register_cloud_artifact_tools(mcp, rag=None):
             except Exception:
                 pass
 
+        # Middleware parser: classify sync events for exfiltration risk
+        _, suspicious_syncs = classify_sync_events(sync_events)
+        cloud_summary = build_cloud_summary("Dropbox", sync_events, suspicious_syncs)
+        enrich_findings(rag, suspicious_syncs,
+                        lambda e: f"Dropbox cloud exfiltration sync event {e.get('filename', '')} {e.get('threat_flags', [])}")
+
         results.update({
             "sync_event_count": len(sync_events),
             "recent_sync_events": sync_events[:100],
             "file_cache_entries": file_entries[:100],
             "account_config": {k: v for k, v in config.items() if "email" in k.lower() or "account" in k.lower() or "user" in k.lower()},
             "upload_log_indicators": upload_indicators[:50],
+            "exfiltration_analysis": cloud_summary,
+            "rag_context": build_rag_summary(rag, "Dropbox cloud exfiltration T1567.002"),
             "tool_calls_used": get_tool_count(),
         })
         return wrap_response("parse_dropbox_logs", results, audit_id)
@@ -178,6 +188,11 @@ def register_cloud_artifact_tools(mcp, rag=None):
                 db_schemas.append({"db": sdb.name, "tables": [r.get("name") for r in rows]})
         results["sqlite_databases"] = db_schemas
 
+        _, suspicious_syncs = classify_sync_events(sync_events)
+        results["exfiltration_analysis"] = build_cloud_summary("OneDrive", sync_events, suspicious_syncs)
+        enrich_findings(rag, suspicious_syncs,
+                        lambda e: f"OneDrive exfiltration sync event {e.get('line', '')} {e.get('threat_flags', [])}")
+        results["rag_context"] = build_rag_summary(rag, "OneDrive cloud exfiltration T1567.002")
         results["tool_calls_used"] = get_tool_count()
         return wrap_response("parse_onedrive_logs", results, audit_id)
 
@@ -229,6 +244,12 @@ def register_cloud_artifact_tools(mcp, rag=None):
                 if rows and "error" not in rows[0]:
                     db_entries.append({"db": cdb.name, "table": t, "sample_rows": rows[:10]})
 
+        sync_event_dicts = [{"line": e} for e in sync_events]
+        _, suspicious_syncs = classify_sync_events(sync_event_dicts)
+        results["exfiltration_analysis"] = build_cloud_summary("Google Drive", sync_event_dicts, suspicious_syncs)
+        enrich_findings(rag, suspicious_syncs,
+                        lambda e: f"Google Drive exfiltration {e.get('line', '')} {e.get('threat_flags', [])}")
+        results["rag_context"] = build_rag_summary(rag, "Google Drive cloud exfiltration T1567.002")
         results["database_entries"] = db_entries[:20]
         results["tool_calls_used"] = get_tool_count()
         return wrap_response("parse_google_drive_logs", results, audit_id)
@@ -292,6 +313,7 @@ def register_cloud_artifact_tools(mcp, rag=None):
             "cached_message_count": len(cached_messages),
             "cached_messages_sample": cached_messages[:50],
             "download_log_entries": downloads[:50],
+            "rag_context": build_rag_summary(rag, "Slack desktop artifacts insider threat data exfiltration"),
             "tool_calls_used": get_tool_count(),
         })
         return wrap_response("parse_slack_artifacts", results, audit_id)
@@ -359,13 +381,20 @@ def register_cloud_artifact_tools(mcp, rag=None):
             except Exception:
                 pass
 
+        ft_dicts = [{"filename": f} for f in file_transfers]
+        _, suspicious_ft = classify_sync_events(ft_dicts)
+        enrich_findings(rag, suspicious_ft,
+                        lambda e: f"Microsoft Teams file transfer exfiltration {e.get('filename', '')} {e.get('threat_flags', [])}")
+
         results.update({
             "accounts": account_info[:10],
             "cached_chat_count": len(chats),
             "chats_sample": chats[:50],
             "file_transfer_count": len(file_transfers),
             "file_transfers": list(dict.fromkeys(file_transfers))[:100],
+            "suspicious_file_transfers": suspicious_ft[:30],
             "relevant_log_files": log_entries[:20],
+            "rag_context": build_rag_summary(rag, "Microsoft Teams file sharing exfiltration T1567.002"),
             "tool_calls_used": get_tool_count(),
         })
         return wrap_response("parse_teams_artifacts", results, audit_id)

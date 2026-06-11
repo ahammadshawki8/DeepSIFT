@@ -22,6 +22,11 @@ from pathlib import Path
 from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter, get_tool_count
 from mcp_server.config import MAX_TOOL_TIMEOUT, EXPORTS_DIR
 from mcp_server.parsers.forensic_knowledge import wrap_response
+from mcp_server.parsers.network_log_parser import (
+    classify_network_log_entries, classify_dns_query, detect_port_scan, flags_to_mitre
+)
+from mcp_server.parsers.rag_enrichment import enrich_findings, build_rag_summary
+from mcp_server.parsers.mitre_auto_map import map_finding_to_techniques
 
 _PRIVATE_RANGES = re.compile(
     r"^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|127\.|::1|fd)"
@@ -129,14 +134,31 @@ def register_network_extended_tools(mcp, rag=None):
                             "note": "POST to external IP — possible C2 or data exfiltration",
                         })
 
+        # Middleware parser: classify DNS queries with network_log_parser
+        mp_dns_classified = []
+        for r in dns_suspicious:
+            query = r.get("query", "")
+            dns_flags = classify_dns_query(query)
+            if dns_flags:
+                r["dns_threat_flags"] = dns_flags
+                r["mitre_techniques"] = map_finding_to_techniques(" ".join(dns_flags))
+                mp_dns_classified.append(r)
+
+        enrich_findings(rag, external_connections[:20],
+                        lambda c: f"network C2 connection external IP {c.get('dst', '')} port {c.get('dst_port', '')}")
+        enrich_findings(rag, mp_dns_classified[:10],
+                        lambda d: f"DNS tunneling exfiltration {d.get('query', '')} T1071.004")
+
         data = {
             "log_dir": log_dir,
             "logs_parsed": list(results.keys()),
             "external_connection_count": len(external_connections),
             "external_connections": external_connections[:50],
             "dns_suspicious": dns_suspicious[:50],
+            "dns_classified": mp_dns_classified[:30],
             "http_post_to_external": http_requests[:50],
             "log_summaries": {k: v["count"] for k, v in results.items()},
+            "rag_context": build_rag_summary(rag, "Zeek network forensics C2 DNS tunneling exfiltration"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("parse_zeek_logs", data, audit_id)
@@ -229,14 +251,25 @@ def register_network_extended_tools(mcp, rag=None):
 
         top_ips = sorted(ip_counts.items(), key=lambda x: x[1], reverse=True)[:20]
 
+        # Middleware parser: classify all IIS entries for additional threat categories
+        _, mp_suspicious = classify_network_log_entries(entries)
+        port_scanners = detect_port_scan(entries)
+        enrich_findings(rag, web_shell_hits[:10],
+                        lambda e: f"web shell access IIS POST {e.get('uri', '')} T1505.003")
+        enrich_findings(rag, sqli_hits[:5],
+                        lambda e: f"SQL injection attack IIS {e.get('uri', '')} T1190")
+
         data = {
             "log_dir": log_dir,
             "total_entries": len(entries),
             "web_shell_hits": web_shell_hits[:50],
             "traversal_hits": traversal_hits[:50],
             "sqli_hits": sqli_hits[:30],
+            "parser_suspicious": mp_suspicious[:50],
+            "port_scanners": port_scanners[:10],
             "top_client_ips": [{"ip": ip, "request_count": cnt} for ip, cnt in top_ips],
             "all_entries": entries[:200],
+            "rag_context": build_rag_summary(rag, "IIS web shell SQL injection web attack T1505.003 T1190"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("parse_iis_logs", data, audit_id)
@@ -310,14 +343,22 @@ def register_network_extended_tools(mcp, rag=None):
 
         top_ips = sorted(ip_counts.items(), key=lambda x: x[1], reverse=True)[:20]
 
+        _, mp_suspicious = classify_network_log_entries(entries)
+        enrich_findings(rag, scanner_hits[:10],
+                        lambda e: f"web scanner attack Apache {e.get('user_agent', '')} T1595.001")
+        enrich_findings(rag, sqli_hits[:5],
+                        lambda e: f"SQL injection Apache {e.get('uri', '')} T1190")
+
         data = {
             "log_path": log_path,
             "total_entries": len(entries),
             "scanner_hits": scanner_hits[:50],
             "sqli_hits": sqli_hits[:50],
             "traversal_hits": traversal_hits[:50],
+            "parser_suspicious": mp_suspicious[:50],
             "top_client_ips": [{"ip": ip, "count": cnt} for ip, cnt in top_ips],
             "all_entries": entries[:200],
+            "rag_context": build_rag_summary(rag, "Apache Nginx web attack scanner SQL injection T1190"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("parse_apache_logs", data, audit_id)

@@ -9,7 +9,7 @@ forensic discipline (caveats, advisories, corroboration hints), enriches finding
 MITRE ATT&CK tags and RAG-backed threat intelligence, and enforces chain-of-custody audit
 logging before the LLM ever sees a single byte of evidence.
 
-**148 typed MCP tools · Post-hoc grounding verification · 4-axis quantified confidence scoring · 3,700+ Sigma rules via Hayabusa · 6-type contradiction detection · vigia-cases benchmark runner**
+**148 typed MCP tools · 23 tool modules · 15 parser modules · Per-tool RAG enrichment · Post-hoc grounding verification · 4-axis quantified confidence scoring · 3,700+ Sigma rules via Hayabusa · 6-type contradiction detection · vigia-cases benchmark runner**
 
 > **Hackathon:** [Find Evil! — SANS DFIR](https://findevil.devpost.com/) · Deadline: June 15, 2026
 
@@ -42,9 +42,9 @@ flowchart TD
     B["DeepSIFT MCP Server\nmcp_server/server.py"]
     B -->|"Structured JSON only\nnever raw text"| A
 
-    B --> C["Tool Modules\n148 typed functions"]
-    C --> D["SIFT Tools\nVolatility · log2timeline · Sleuthkit\nEZ Tools · YARA · Hayabusa"]
-    D -->|"raw output"| E["Parsers\npslist · netscan · malfind\ntimeline · mitre_auto_map"]
+    B --> C["Tool Modules\n23 modules · 148 typed functions"]
+    C --> D["SIFT Tools\nVolatility · log2timeline · Sleuthkit\nEZ Tools · YARA · Hayabusa\nbulk_extractor · capa · FLOSS · exiftool"]
+    D -->|"raw output"| E["Middleware Parsers\npslist · netscan · malfind · timeline\nbrowser · cloud · document · network_log\nlinux · mitre_auto_map · rag_enrichment"]
     E -->|"structured dict"| F["Forensic Knowledge Envelope\ncaveats · advisories · corroboration"]
     F -->|"enriched JSON"| B
 
@@ -60,8 +60,9 @@ flowchart TD
 
 ## Tool Inventory
 
-DeepSIFT exposes **148 typed MCP tools** across nine categories. No `run_shell`, no
-`execute_command` — every tool has a typed signature and returns structured JSON.
+DeepSIFT exposes **148 typed MCP tools** across 18 categories. No `run_shell`, no
+`execute_command` — every tool has a typed signature, a middleware parser, and returns
+RAG-enriched structured JSON.
 
 ### Memory Forensics — Core (Volatility 3)
 
@@ -174,6 +175,155 @@ DeepSIFT exposes **148 typed MCP tools** across nine categories. No `run_shell`,
 
 **Built-in YARA rule sets:** `suspicious_strings` · `webshells` · `ransomware` · `rats` · `packers`
 
+### Memory Forensics — Advanced (Volatility 3)
+
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `get_modules` | Kernel module list; flags unsigned/suspicious drivers | `suspicious_modules`, `mitre_techniques`, `threat_intel` |
+| `get_driverirp` | IRP dispatch table hook detection (rootkit) | `hooked_handlers`, `threat_intel` |
+| `get_getsids` | Security identifiers per process (privilege enumeration) | `sids`, `admin_processes` |
+| `get_hashdump` | NTLM password hash extraction from SAM in memory | `accounts`, `non_empty_hashes`, `threat_intel` |
+| `get_lsadump` | LSA secrets from memory (service account passwords) | `secrets`, `threat_intel` |
+| `get_cachedump` | Domain cached credential hashes (DCC2) | `cached_accounts` |
+| `get_clipboard` | Clipboard contents at time of acquisition | `clipboard_text` |
+| `get_atoms` | Windows atom table (GUI attack staging) | `atoms` |
+| `get_sessions` | Terminal Services / RDP session list | `sessions`, `rdp_sessions` |
+| `get_mft_memory` | In-memory MFT record extraction | `mft_records` |
+| `get_ads_memory` | Alternate Data Stream detection from memory image | `ads_entries` |
+| `dump_process` | Dump a suspicious process to disk for static analysis | `output_path`, `sha256` |
+
+### Browser Artifacts
+
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `parse_chrome_history` | SQLite history + downloads; cloud exfil domain classification | `suspicious_visits`, `suspicious_downloads`, `parser_summary`, `threat_intel` |
+| `parse_firefox_history` | places.sqlite history + downloads; threat flags | `suspicious_visits`, `parser_summary`, `threat_intel` |
+| `parse_chrome_extensions` | Installed extensions; flags risky permissions | `suspicious_extensions`, `high_risk_count` |
+| `parse_browser_cookies` | Cookie store extraction; session token discovery | `cookies`, `suspicious_domains` |
+| `run_hindsight` | Full Chrome/Chromium browser artifact extraction | `output_dir`, `summary` |
+| `parse_browser_passwords` | Saved password store; credential theft evidence | `credentials`, `domain_count` |
+| `parse_ie_edge_legacy_history` | IE/Edge Legacy WebCacheV01.dat history | `visits`, `downloads` |
+| `parse_chromium_cache` | Chromium disk cache; cached malware delivery pages | `cache_entries`, `suspicious_urls` |
+
+### Email Artifacts
+
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `parse_pst_ost` | Outlook PST/OST via readpst; exfiltration email search | `email_count`, `suspicious_emails`, `attachments` |
+| `parse_thunderbird` | Thunderbird mbox profile extraction | `emails`, `suspicious_emails` |
+| `parse_eml_file` | Single .eml file; header analysis + attachment extraction | `headers`, `attachments`, `iocs` |
+| `extract_email_attachments` | Bulk attachment extraction for malware analysis | `extracted_count`, `suspicious_attachments` |
+| `analyze_email_headers` | RFC 5322 header forensics; spoofing + routing analysis | `spf_result`, `dkim_result`, `hop_analysis`, `mitre_techniques` |
+
+### Cloud Storage Artifacts
+
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `parse_dropbox_logs` | Dropbox sync logs; exfiltration risk classification | `sync_events`, `parser_summary`, `threat_intel` |
+| `parse_onedrive_logs` | OneDrive sync/activity logs | `sync_events`, `parser_summary`, `threat_intel` |
+| `parse_google_drive_logs` | Google Drive desktop sync logs | `sync_events`, `parser_summary` |
+| `parse_slack_artifacts` | Slack desktop app data; workspace + channel forensics | `workspaces`, `suspicious_events` |
+| `parse_teams_artifacts` | Microsoft Teams SQLite databases; chat + call forensics | `accounts`, `messages`, `suspicious_events` |
+| `parse_icloud_logs` | iCloud for Windows sync logs | `sync_events`, `parser_summary` |
+
+### Document Analysis
+
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `analyze_pdf_doc` | pdfid keyword scan; JavaScript/OpenAction/launch classification | `risk_score`, `suspicious_keywords`, `mitre_techniques`, `threat_intel` |
+| `analyze_ole_doc` | oletools VBA macro extraction + malicious pattern detection | `macros`, `classified_risks`, `mitre_techniques` |
+| `analyze_rtf_doc` | rtfobj embedded object extraction; malicious CLSID detection | `objects`, `clsid_risks` |
+| `analyze_zip_archive` | ZIP entry inspection; password-protected + double-ext detection | `entries`, `suspicious_entries` |
+| `detect_dde_payload` | DDE/DDEAUTO command injection in Office documents | `dde_found`, `commands`, `threat_intel` |
+
+### Linux / macOS Forensics
+
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `get_linux_processes` | Volatility linux.pslist; attack command + LD_PRELOAD detection | `suspicious`, `threat_flags`, `threat_intel` |
+| `get_linux_bash_history` | Bash command history with attack pattern classification | `commands`, `classified_suspicious`, `threat_intel` |
+| `get_linux_network` | linux.netstat via Volatility | `connections`, `external` |
+| `get_linux_modules` | Kernel module list; rootkit LKM detection | `modules`, `suspicious` |
+| `get_linux_syscall` | System call table hook detection | `hooks` |
+| `get_linux_malfind` | malfind equivalent for Linux memory images | `injected` |
+| `get_linux_envars` | Process environment variables | `envars`, `suspicious` |
+| `get_linux_mounts` | Mount table; network share + hidden mount detection | `mounts`, `suspicious` |
+| `parse_syslog` | Syslog/auth.log parsing; auth failure + sudo classification | `classified_events`, `classified_summary`, `threat_intel` |
+| `parse_linux_crontab` | Crontab persistence detection across all users | `cron_entries`, `suspicious_schedules` |
+
+### Network Forensics — Extended
+
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `parse_zeek_logs` | Zeek conn/dns/http/ssl/files log parsing; DNS tunneling detection | `suspicious_dns`, `external_conns`, `threat_intel` |
+| `parse_iis_logs` | IIS W3C access logs; web shell + SQLi + scanner detection | `suspicious_requests`, `web_shells`, `threat_intel` |
+| `parse_apache_logs` | Apache access/error logs; same threat classification | `suspicious_requests`, `port_scans` |
+| `extract_pcap_files` | Extract files from PCAP via NetworkMiner/tshark | `extracted_files` |
+| `parse_firewall_logs` | Firewall deny/allow logs; lateral movement flagging | `suspicious_flows`, `internal_scanning` |
+| `decode_rdp_bitmap_cache` | RDP bitmap cache → screenshot reconstruction | `output_dir`, `image_count` |
+| `parse_netflow` | NetFlow/IPFIX analysis; top talkers + exfil signals | `top_talkers`, `large_flows`, `exfil_candidates` |
+
+### Anti-Forensics Detection
+
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `detect_timestomping` | SI vs FN MACB delta comparison; round-number timestamps | `si_fn_delta_anomalies`, `mitre_techniques`, `threat_intel` |
+| `detect_log_wiping` | Event ID 1102/104/4719; zero-byte EVTX detection | `log_clear_events`, `threat_intel` |
+| `detect_secure_deletion` | SDelete/Eraser/CCleaner traces in prefetch + shimcache | `secure_deletion_indicators`, `threat_intel` |
+| `detect_ads_streams` | NTFS Alternate Data Stream discovery | `suspicious_streams`, `threat_intel` |
+| `analyze_vss_shadows` | Volume Shadow Copy inventory; deletion evidence | `shadow_copy_count`, `rag_context` |
+| `detect_prefetch_anomalies` | Temp path execution + anti-forensics tool execution | `suspicious_entries`, `anti_forensics_tools` |
+| `detect_event_log_tampering` | Event ID 1102/4719/7040 audit policy changes | `findings`, `threat_intel` |
+
+### File Carving and Static Analysis
+
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `run_bulk_extractor` | Bulk feature extraction: emails, URLs, IPs, CCNs, Base64 | `top_iocs`, `enriched_email_iocs`, `enriched_url_iocs` |
+| `carve_files_foremost` | Header/footer file carving from unallocated space | `recovered_files_by_type`, `total_recovered` |
+| `carve_files_scalpel` | Configurable signature-based file carving | `recovered_files_by_type` |
+| `analyze_with_exiftool` | Metadata extraction (GPS, author, software, revision) | `interesting_fields`, `full_metadata` |
+| `calculate_file_hashes` | MD5/SHA1/SHA256/SHA512 + ssdeep fuzzy hash | `hashes`, `ssdeep` |
+| `detect_capabilities_capa` | capa: capability detection mapped to MITRE ATT&CK | `capabilities`, `mitre_techniques`, `threat_intel` |
+| `extract_floss_strings` | FLOSS: XOR/stack/tight decoded string extraction | `decoded_strings`, `ioc_ips_in_decoded`, `threat_intel` |
+| `get_file_type` | Magic byte vs extension mismatch (masquerade detection) | `extension_mismatch`, `mitre_techniques` |
+
+### Extended Registry Forensics
+
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `parse_shellbags` | Folder navigation history; deleted dir + USB + share access | `suspicious_path_accesses`, `threat_intel` |
+| `parse_windows_timeline` | ActivitiesCache.db: app launches + file opens | `file_opens`, `app_launches` |
+| `parse_bam_dam` | BAM/DAM last-execution timestamps per user SID | `suspicious_executions`, `threat_intel` |
+| `parse_typed_paths` | Explorer address bar history; network share + admin share paths | `network_share_paths`, `removable_media_paths` |
+| `parse_run_mru` | Run dialog (Win+R) execution history | `suspicious_run_commands`, `threat_intel` |
+| `parse_open_save_mru` | Open/Save dialog recent file access | `entries` |
+| `parse_wordwheelquery` | Windows Search query history; sensitive file discovery | `suspicious_searches`, `threat_intel` |
+| `parse_installed_software` | Installed programs; RAT/hacking tool detection | `suspicious_software`, `threat_intel` |
+| `parse_sam_hive` | Local user accounts and last logon info | `entries` |
+| `parse_logon_history` | Cached domain credentials in SECURITY hive | `entries`, `forensic_note` |
+
+### Extended Disk Forensics
+
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `get_fs_statistics` | fsstat: block size, volume name, creation/mount timestamps | `fs_type`, `block_size`, `creation_time` |
+| `get_image_info` | ewfinfo/mmls: image format, acquisition hash, partition table | `ewf_metadata`, `partition_table` |
+| `create_mac_timeline` | mactime: body-file MAC(B) timeline generation | `total_timeline_entries`, `output_path` |
+| `read_raw_block` | blkcat: hexdump specific sectors; magic byte detection | `hexdump`, `detected_structure` |
+| `analyze_slack_space` | blkls: file slack space extraction + IOC scanning | `ips_in_slack`, `urls_in_slack`, `threat_intel` |
+| `verify_image_integrity` | MD5/SHA256 + ewfverify chain-of-custody verification | `integrity_verified`, `chain_of_custody` |
+
+### Threat Intelligence
+
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `lookup_hash_reputation` | VirusTotal file hash lookup (MD5/SHA1/SHA256) | `detection_ratio`, `verdict`, `mitre_techniques`, `threat_intel` |
+| `lookup_domain_reputation` | VirusTotal + WHOIS domain reputation check | `verdict`, `mitre_techniques`, `threat_intel` |
+| `search_mitre_technique` | RAG query for MITRE ATT&CK technique details | `rag_results`, `static_knowledge` |
+| `search_ioc_database` | Search all IOCs in the RAG knowledge base | `matches`, `match_count` |
+| `calculate_fuzzy_hash_similarity` | ssdeep similarity between two files/hashes (malware variants) | `similarity_score`, `interpretation` |
+
 ---
 
 ## Hallucination Reduction Pipeline
@@ -234,7 +384,7 @@ DeepSIFT was designed knowing the competitive landscape. Here is what sets it ap
 
 | Feature | DeepSIFT | casefile | Valhuntir | Agentic-DART | Mulder |
 |---|:---:|:---:|:---:|:---:|:---:|
-| MCP typed tools | **59** | ~30 | 75–100 | ~25 | 140+ |
+| MCP typed tools | **148** | ~30 | 75–100 | ~25 | 140+ |
 | Post-hoc grounding verification | ✅ verbatim token | ✅ CSV verbatim | ✗ | ✗ | ✗ |
 | Quantified confidence score (0-100) | ✅ 4-axis | ✗ | ✗ | ✗ | ✗ |
 | Contradiction detection | ✅ 6 types | ✗ | ✗ | ✗ | ✗ |
@@ -431,57 +581,75 @@ Scored dimensions: MITRE Recall · IOC Recall · Narrative Recall · Hallucinati
 ```
 DeepSIFT/
 ├── mcp_server/
-│   ├── server.py                  ← MCP server entry point (59 tools)
-│   ├── config.py                  ← Tool paths, environment config
-│   ├── audit.py                   ← audit_id generation, tool counter, chain-of-custody log
+│   ├── server.py                    ← MCP server entry point (148 tools, 23 modules)
+│   ├── config.py                    ← Tool paths, environment config
+│   ├── audit.py                     ← audit_id generation, tool counter, chain-of-custody log
 │   ├── tools/
-│   │   ├── volatility.py          ← 9 core Volatility tools + verify_findings + finish_analysis
-│   │   ├── volatility_extended.py ← 10 advanced Volatility tools (privileges, VAD, SSDT, callbacks…)
-│   │   ├── hayabusa.py            ← Hayabusa 3,700+ Sigma rule integration
-│   │   ├── file_analysis.py       ← PE metadata, string extraction, packer detection
-│   │   ├── network_analysis.py    ← PCAP summary, DNS queries, ARP cache
-│   │   ├── windows_artifacts.py   ← 16 EZ Tools wrappers (event logs, registry, execution artifacts)
-│   │   ├── log2timeline.py        ← 3 Plaso tools
-│   │   ├── sleuthkit.py           ← 4 Sleuth Kit tools
-│   │   ├── yara_tools.py          ← 3 YARA tools
-│   │   └── correlation.py         ← correlate_artifacts + adversarial_review + detect_contradictions
+│   │   ├── volatility.py            ← 12 core Volatility tools + verify_findings + finish_analysis
+│   │   ├── volatility_extended.py   ← 10 advanced Volatility tools (privileges, VAD, SSDT, callbacks)
+│   │   ├── volatility_advanced.py   ← 12 Volatility tools (modules, IRP hooks, hashdump, dump_process)
+│   │   ├── windows_artifacts.py     ← 16 EZ Tools wrappers (event logs, registry, execution artifacts)
+│   │   ├── registry_extended.py     ← 10 registry tools (shellbags, BAM/DAM, MRU, SAM, timeline)
+│   │   ├── browser_artifacts.py     ← 8 browser tools (Chrome, Firefox, Edge, Hindsight, cache)
+│   │   ├── email_artifacts.py       ← 5 email tools (PST/OST, Thunderbird, EML, header forensics)
+│   │   ├── cloud_artifacts.py       ← 6 cloud tools (Dropbox, OneDrive, Google Drive, Slack, Teams)
+│   │   ├── document_analysis.py     ← 5 document tools (PDF, OLE/VBA, RTF, ZIP, DDE)
+│   │   ├── linux_forensics.py       ← 10 Linux tools (processes, bash history, syslog, crontab)
+│   │   ├── network_analysis.py      ← 3 network tools (PCAP, DNS, ARP)
+│   │   ├── network_extended.py      ← 7 network tools (Zeek, IIS, Apache, firewall, netflow, RDP)
+│   │   ├── anti_forensics.py        ← 7 anti-forensics detection tools (timestomp, log wipe, ADS, VSS)
+│   │   ├── file_carving.py          ← 8 tools (bulk_extractor, foremost, scalpel, capa, FLOSS, exiftool)
+│   │   ├── file_analysis.py         ← 3 static analysis tools (PE metadata, strings, packer detection)
+│   │   ├── disk_extended.py         ← 6 disk tools (fsstat, ewfinfo, mactime, blkcat, slack, integrity)
+│   │   ├── threat_intel_extended.py ← 5 threat intel tools (VT hash/domain, MITRE search, IOC DB, ssdeep)
+│   │   ├── log2timeline.py          ← 3 Plaso tools
+│   │   ├── sleuthkit.py             ← 4 Sleuth Kit tools
+│   │   ├── yara_tools.py            ← 3 YARA tools
+│   │   ├── hayabusa.py              ← 2 Hayabusa tools (3,700+ Sigma rules)
+│   │   └── correlation.py           ← 3 tools: correlate_artifacts, adversarial_review, detect_contradictions
 │   └── parsers/
-│       ├── pslist_parser.py       ← SANS Hunt Evil baseline (31 processes)
-│       ├── netscan_parser.py      ← External IP extraction and flagging
-│       ├── malfind_parser.py      ← Injection type classification
-│       ├── timeline_parser.py     ← Suspicious keyword detection
-│       ├── mitre_auto_map.py      ← Rule-based MITRE ATT&CK mapping
-│       ├── grounding_verifier.py  ← Post-hoc verbatim token grounding check
-│       ├── confidence_scorer.py   ← 4-axis quantified confidence scoring (0-100)
-│       └── forensic_knowledge.py  ← Per-tool caveats/advisories/corroboration (59 entries)
+│       ├── pslist_parser.py         ← SANS Hunt Evil baseline (31 processes), masquerade detection
+│       ├── netscan_parser.py        ← External IP extraction and flagging
+│       ├── malfind_parser.py        ← Injection type classification (PE/shellcode/reflective)
+│       ├── timeline_parser.py       ← Suspicious keyword detection in Plaso timeline
+│       ├── mitre_auto_map.py        ← Rule-based MITRE ATT&CK mapping (80+ rules, 19 categories)
+│       ├── rag_enrichment.py        ← Shared RAG enrichment helpers (enrich_findings, build_rag_summary)
+│       ├── browser_parser.py        ← Browser URL/download threat classification
+│       ├── cloud_parser.py          ← Cloud sync exfiltration risk classification
+│       ├── document_parser.py       ← PDF/OLE/RTF/DDE/ZIP malicious document classification
+│       ├── network_log_parser.py    ← Web/firewall/DNS log threat classification
+│       ├── linux_parser.py          ← Linux process/command/syslog threat classification
+│       ├── grounding_verifier.py    ← Post-hoc verbatim token grounding check
+│       ├── confidence_scorer.py     ← 4-axis quantified confidence scoring (0-100)
+│       └── forensic_knowledge.py    ← Per-tool forensic caveats/advisories/corroboration (148 entries)
 ├── rag/
-│   ├── knowledge_base.py          ← ChromaDB vector store
-│   ├── query.py                   ← Semantic search interface
+│   ├── knowledge_base.py            ← ChromaDB vector store
+│   ├── query.py                     ← Semantic search interface
 │   └── ingest/
-│       ├── mitre_attack.py        ← MITRE ATT&CK Enterprise ingestion
-│       ├── case_history.py        ← Case-specific findings ingestion
-│       ├── rocba_iocs.py          ← ROCBA case IOC seeding
-│       └── run_all.py             ← One-command RAG initialization
+│       ├── mitre_attack.py          ← MITRE ATT&CK Enterprise ingestion
+│       ├── case_history.py          ← Case-specific findings ingestion
+│       ├── rocba_iocs.py            ← ROCBA case IOC seeding (hostile IPs, MRC.exe, cloud exfil)
+│       └── run_all.py               ← One-command RAG initialization
 ├── agents/
-│   └── orchestrator.py            ← LangGraph multi-agent coordination
+│   └── orchestrator.py              ← LangGraph multi-agent coordination
 ├── benchmark/
-│   ├── runner.py                  ← Benchmark execution (Protocol SIFT vs DeepSIFT)
-│   ├── scorer.py                  ← Precision/recall/F1 vs ground truth
-│   ├── vigia_runner.py            ← vigia-cases standardized multi-case benchmark
-│   ├── baselines/                 ← Protocol SIFT reference findings
-│   └── reports/html_report.py     ← Visual HTML comparison report
-├── tests/                         ← pytest unit tests (32 passing)
+│   ├── runner.py                    ← Benchmark execution (Protocol SIFT vs DeepSIFT)
+│   ├── scorer.py                    ← Precision/recall/F1 vs ground truth
+│   ├── vigia_runner.py              ← vigia-cases standardized multi-case benchmark
+│   ├── baselines/                   ← Protocol SIFT reference findings
+│   └── reports/html_report.py       ← Visual HTML comparison report
+├── tests/                           ← pytest unit tests (32 passing)
 ├── yara_rules/
-│   ├── suspicious_strings.yar     ← T1059.001, T1003, T1218, T1547.001
-│   ├── webshells.yar              ← T1505.003
-│   ├── ransomware.yar             ← T1486, T1490
-│   ├── rats.yar                   ← T1219, T1071
-│   └── packers.yar                ← T1027.002
-├── analysis/                      ← findings.json + forensic_audit.log (runtime)
-├── exports/                       ← raw tool outputs SHA-256 indexed (runtime)
-├── docs/                          ← architecture.md, dataset.md, devpost_submission.md
-├── demo.py                        ← End-to-end demo script
-├── .env.example                   ← Environment template
+│   ├── suspicious_strings.yar       ← T1059.001, T1003, T1218, T1547.001
+│   ├── webshells.yar                ← T1505.003
+│   ├── ransomware.yar               ← T1486, T1490
+│   ├── rats.yar                     ← T1219, T1071
+│   └── packers.yar                  ← T1027.002
+├── analysis/                        ← findings.json + forensic_audit.log (runtime)
+├── exports/                         ← raw tool outputs SHA-256 indexed (runtime)
+├── docs/                            ← architecture.md, dataset.md, devpost_submission.md
+├── demo.py                          ← End-to-end demo script
+├── .env.example                     ← Environment template
 └── requirements.txt
 ```
 
@@ -489,7 +657,7 @@ DeepSIFT/
 
 ## MITRE ATT&CK Coverage
 
-DeepSIFT's `mitre_auto_map.py` tags findings in real time at the tool layer:
+DeepSIFT's `mitre_auto_map.py` (80+ rules, 19 categories) tags findings at the tool layer:
 
 | Finding | Technique |
 |---|---|
@@ -508,6 +676,21 @@ DeepSIFT's `mitre_auto_map.py` tags findings in real time at the tool layer:
 | Cloud storage upload (SRUM high bytes_sent) | T1567.002 — Exfiltration to Cloud Storage |
 | Burst file deletion (USN Journal) | T1070 — Indicator Removal |
 | Timestamp anomaly (MFT 0x10 vs 0x30) | T1070.006 — Timestomping |
+| Browser visit to cloud exfil domain | T1567.002 — Exfiltration to Cloud Storage |
+| DNS query subdomain length > 40 chars | T1048.003 — DNS Tunneling |
+| Web shell URL pattern (cmd.php, shell.aspx) | T1505.003 — Web Shell |
+| VBA AutoOpen / Shell / PowerShell call | T1566.001 — Spearphishing Attachment |
+| DDE/DDEAUTO in Office document | T1559.002 — Dynamic Data Exchange |
+| LD_PRELOAD in process environment | T1574.006 — LD_PRELOAD |
+| Linux crontab persistence entry | T1053.003 — Cron |
+| History file wiped (`.bash_history` → `/dev/null`) | T1070.003 — Clear Command History |
+| Port scan (10+ unique ports from one host) | T1046 — Network Service Discovery |
+| IRP hook in driver dispatch table | T1014 — Rootkit |
+| Secure deletion tool in prefetch | T1070.004 — File Deletion |
+| VSS shadow count = 0 | T1490 — Inhibit System Recovery |
+| NTFS Alternate Data Stream | T1564.004 — Hide Artifacts: NTFS ADS |
+| File extension / magic byte mismatch | T1036.007 — Masquerading |
+| Remote access tool installed (AnyDesk, TeamViewer) | T1219 — Remote Access Software |
 
 ---
 

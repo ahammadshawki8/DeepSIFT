@@ -22,6 +22,11 @@ from pathlib import Path
 from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter, get_tool_count
 from mcp_server.config import VOLATILITY_CMD, MAX_TOOL_TIMEOUT
 from mcp_server.parsers.forensic_knowledge import wrap_response
+from mcp_server.parsers.linux_parser import (
+    classify_linux_process, classify_bash_command, classify_syslog_entries
+)
+from mcp_server.parsers.rag_enrichment import enrich_findings, build_rag_summary
+from mcp_server.parsers.mitre_auto_map import map_finding_to_techniques
 
 
 def _vol_linux(image_path: str, plugin: str, extra: list[str] | None = None) -> tuple[str, str]:
@@ -76,11 +81,24 @@ def register_linux_forensics_tools(mcp, rag=None):
             ])
         ]
 
+        # Middleware parser: structured classification via linux_parser
+        for proc in processes:
+            flags = classify_linux_process(proc)
+            if flags:
+                proc["threat_flags"] = flags
+                proc["mitre_techniques"] = map_finding_to_techniques(" ".join(flags))
+                if proc not in suspicious:
+                    suspicious.append(proc)
+
+        enrich_findings(rag, suspicious,
+                        lambda p: f"Linux suspicious process {p.get('comm', '')} {p.get('threat_flags', [])} rootkit")
+
         data = {
             "image_path": image_path,
             "total_processes": len(processes),
             "suspicious_processes": suspicious[:30],
             "all_processes": processes[:200],
+            "rag_context": build_rag_summary(rag, "Linux process anomaly rootkit reverse shell T1059.004"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("get_linux_processes", data, audit_id)
@@ -123,11 +141,23 @@ def register_linux_forensics_tools(mcp, rag=None):
                     entry["suspicious_reason"] = "Known malicious command pattern"
                     suspicious.append(entry)
 
+        # Middleware parser: structured bash command classification
+        classified: list[dict] = []
+        for cmd_entry in commands:
+            classified.append(classify_bash_command(
+                cmd_entry.get("command", ""), cmd_entry.get("pid", "")
+            ))
+        mp_suspicious = [c for c in classified if c.get("risk_level") == "high"]
+        enrich_findings(rag, mp_suspicious,
+                        lambda c: f"Linux bash command attack {c.get('command', '')} {c.get('mitre', '')}")
+
         data = {
             "image_path": image_path,
             "total_commands": len(commands),
             "suspicious_commands": suspicious[:50],
+            "classified_suspicious": mp_suspicious[:50],
             "all_commands": commands[:300],
+            "rag_context": build_rag_summary(rag, "Linux bash history attack command T1059.004 T1105"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("get_linux_bash_history", data, audit_id)
@@ -404,16 +434,26 @@ def register_linux_forensics_tools(mcp, rag=None):
             except Exception:
                 pass
 
+        # Middleware parser: structured syslog classification
+        line_tuples = [(e.get("source", ""), e.get("line", "")) for e in events]
+        classified_events, summary_counts = classify_syslog_entries(line_tuples)
+        auth_failures = [e for e in classified_events if e.get("event_type") == "auth_failure"]
+        enrich_findings(rag, auth_failures,
+                        lambda e: f"Linux SSH brute force authentication failure {e.get('line', '')} T1110")
+
         data = {
             "log_dir": log_dir,
             "total_events": len(events),
             "failed_auth_count": len(failed_auth),
             "ssh_logon_count": len(ssh_logons),
             "sudo_event_count": len(sudo_events),
+            "classified_summary": summary_counts,
+            "classified_events": classified_events[:100],
             "failed_auth_events": failed_auth[:50],
             "ssh_logon_events": ssh_logons[:50],
             "sudo_events": sudo_events[:50],
             "all_events": events[:300],
+            "rag_context": build_rag_summary(rag, "Linux authentication brute force lateral movement T1110"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("parse_syslog", data, audit_id)

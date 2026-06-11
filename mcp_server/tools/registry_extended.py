@@ -21,6 +21,8 @@ from pathlib import Path
 from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter, get_tool_count
 from mcp_server.config import EZ_TOOLS_DIR, MAX_TOOL_TIMEOUT, EXPORTS_DIR
 from mcp_server.parsers.forensic_knowledge import wrap_response
+from mcp_server.parsers.rag_enrichment import enrich_findings, build_rag_summary
+from mcp_server.parsers.mitre_auto_map import map_finding_to_techniques
 
 _EZ = EZ_TOOLS_DIR
 
@@ -119,6 +121,12 @@ def register_registry_extended_tools(mcp, rag=None):
             ])
         ]
 
+        for s in suspicious_paths:
+            s["mitre_techniques"] = map_finding_to_techniques(
+                f"shellbag folder access {str(s)}")
+        enrich_findings(rag, suspicious_paths[:5],
+                        lambda s: f"shellbag folder navigation {str(s)[:200]} T1083 T1021.002")
+
         data = {
             "ntuser_path": ntuser_path,
             "total_shellbag_entries": len(entries),
@@ -129,6 +137,7 @@ def register_registry_extended_tools(mcp, rag=None):
                 "Network paths (\\\\server\\share) prove SMB access (T1021.002). "
                 "Removable media paths prove USB/external drive access (T1052.001)."
             ),
+            "rag_context": build_rag_summary(rag, "shellbag folder access lateral movement USB T1083 T1021.002"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("parse_shellbags", data, audit_id)
@@ -225,6 +234,11 @@ def register_registry_extended_tools(mcp, rag=None):
             ])
         ]
 
+        for s in suspicious:
+            s["mitre_techniques"] = map_finding_to_techniques(f"execution BAM {str(s)[:200]}")
+        enrich_findings(rag, suspicious[:5],
+                        lambda s: f"BAM execution suspicious binary {str(s)[:200]}")
+
         data = {
             "system_hive_path": system_hive_path,
             "total_bam_entries": len(entries),
@@ -235,6 +249,7 @@ def register_registry_extended_tools(mcp, rag=None):
                 "Unlike Prefetch, BAM works on SSDs with SuperFetch disabled. "
                 "Entries persist even after manual Prefetch deletion."
             ),
+            "rag_context": build_rag_summary(rag, "BAM execution history registry persistence T1547"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("parse_bam_dam", data, audit_id)
@@ -315,11 +330,17 @@ def register_registry_extended_tools(mcp, rag=None):
             ])
         ]
 
+        for s in suspicious:
+            s["mitre_techniques"] = map_finding_to_techniques(f"run dialog command {str(s)[:200]}")
+        enrich_findings(rag, suspicious[:5],
+                        lambda s: f"Windows Run dialog command execution {str(s)[:200]} T1059")
+
         data = {
             "ntuser_path": ntuser_path,
             "total_run_mru_entries": len(entries),
             "suspicious_run_commands": suspicious,
             "all_run_mru": entries[:100],
+            "rag_context": build_rag_summary(rag, "Windows Run MRU command execution T1059 T1547"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("parse_run_mru", data, audit_id)
@@ -389,11 +410,17 @@ def register_registry_extended_tools(mcp, rag=None):
             ])
         ]
 
+        for s in suspicious_searches:
+            s["mitre_techniques"] = map_finding_to_techniques(f"search discovery {str(s)[:200]} T1083")
+        enrich_findings(rag, suspicious_searches[:5],
+                        lambda s: f"Windows search query sensitive file discovery {str(s)[:200]} T1083")
+
         data = {
             "ntuser_path": ntuser_path,
             "total_search_terms": len(entries),
             "suspicious_searches": suspicious_searches,
             "all_search_terms": entries[:100],
+            "rag_context": build_rag_summary(rag, "Windows search sensitive file discovery T1083"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("parse_wordwheelquery", data, audit_id)
@@ -430,11 +457,17 @@ def register_registry_extended_tools(mcp, rag=None):
         }
         rat_software = [e for e in entries if any(kw in str(e).lower() for kw in _RAT_KEYWORDS)]
 
+        for r in rat_software:
+            r["mitre_techniques"] = map_finding_to_techniques(f"remote access tool {str(r)[:200]}")
+        enrich_findings(rag, rat_software[:5],
+                        lambda r: f"remote access tool installed {str(r)[:200]} T1219 T1021")
+
         data = {
             "software_hive_path": software_hive_path,
             "total_installed_programs": len(entries),
             "suspicious_software": rat_software,
             "all_software": entries[:300],
+            "rag_context": build_rag_summary(rag, "remote access tool RAT installed software T1219 T1021"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("parse_installed_software", data, audit_id)

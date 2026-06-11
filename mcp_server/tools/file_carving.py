@@ -21,6 +21,8 @@ from pathlib import Path
 from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter, get_tool_count
 from mcp_server.config import MAX_TOOL_TIMEOUT, EXPORTS_DIR
 from mcp_server.parsers.forensic_knowledge import wrap_response
+from mcp_server.parsers.rag_enrichment import enrich_findings, build_rag_summary
+from mcp_server.parsers.mitre_auto_map import map_finding_to_techniques
 
 
 def register_file_carving_tools(mcp, rag=None):
@@ -68,6 +70,14 @@ def register_file_carving_tools(mcp, rag=None):
             if lines:
                 iocs[out_file.stem] = lines[:50]
 
+        # Enrich discovered IOCs with RAG context
+        email_items = [{"value": e, "type": "email"} for e in iocs.get("email", [])[:20]]
+        url_items = [{"value": u, "type": "url"} for u in iocs.get("url", [])[:20]]
+        domain_items = [{"value": d, "type": "domain"} for d in iocs.get("domain", [])[:20]]
+        enrich_findings(rag, email_items[:5], lambda i: f"email address IOC exfiltration {i.get('value', '')}")
+        enrich_findings(rag, url_items[:5], lambda i: f"URL IOC C2 {i.get('value', '')}")
+        enrich_findings(rag, domain_items[:5], lambda i: f"domain IOC threat intel {i.get('value', '')}")
+
         data = {
             "image_path": image_path,
             "output_dir": str(out_dir),
@@ -76,6 +86,10 @@ def register_file_carving_tools(mcp, rag=None):
             "emails": iocs.get("email", [])[:50],
             "urls": iocs.get("url", [])[:50],
             "domains": iocs.get("domain", [])[:50],
+            "enriched_email_iocs": email_items[:5],
+            "enriched_url_iocs": url_items[:5],
+            "enriched_domain_iocs": domain_items[:5],
+            "rag_context": build_rag_summary(rag, "bulk extractor email URL domain IOC carving"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("run_bulk_extractor", data, audit_id)
@@ -347,11 +361,19 @@ def register_file_carving_tools(mcp, rag=None):
         except json.JSONDecodeError:
             capabilities = [{"raw": result.stdout[:2000]}]
 
+        for cap in capabilities:
+            if not cap.get("mitre_techniques"):
+                cap["mitre_techniques"] = map_finding_to_techniques(
+                    f"malware capability {cap.get('capability', '')} {cap.get('namespace', '')}")
+        enrich_findings(rag, capabilities[:10],
+                        lambda cap: f"malware capability {cap.get('capability', '')} MITRE ATT&CK {' '.join(str(a) for a in cap.get('mitre_attack', []))}")
+
         data = {
             "file_path": file_path,
             "capability_count": len(capabilities),
             "mitre_techniques": list(dict.fromkeys(mitre_techniques)),
             "capabilities": capabilities[:100],
+            "rag_context": build_rag_summary(rag, f"malware capabilities {' '.join(mitre_techniques[:5])}"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("detect_capabilities_capa", data, audit_id)
@@ -411,6 +433,11 @@ def register_file_carving_tools(mcp, rag=None):
         ioc_ips = list({m for s in decoded_strings + stack_strings for m in _re.findall(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", s)})
         ioc_urls = list({m for s in decoded_strings + stack_strings for m in _re.findall(r"https?://\S+", s)})
 
+        ip_items = [{"value": ip, "type": "ip"} for ip in ioc_ips[:10]]
+        url_items_floss = [{"value": u, "type": "url"} for u in ioc_urls[:10]]
+        enrich_findings(rag, ip_items, lambda i: f"C2 IP decoded malware string {i.get('value', '')}")
+        enrich_findings(rag, url_items_floss, lambda i: f"C2 URL decoded obfuscated string {i.get('value', '')}")
+
         data = {
             "file_path": file_path,
             "decoded_string_count": len(decoded_strings),
@@ -420,6 +447,9 @@ def register_file_carving_tools(mcp, rag=None):
             "stack_strings": stack_strings[:100],
             "ioc_ips_in_decoded": ioc_ips[:30],
             "ioc_urls_in_decoded": ioc_urls[:30],
+            "enriched_ip_iocs": ip_items,
+            "enriched_url_iocs": url_items_floss,
+            "rag_context": build_rag_summary(rag, "FLOSS decoded strings obfuscated XOR malware C2"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("extract_floss_strings", data, audit_id)
@@ -483,6 +513,13 @@ def register_file_carving_tools(mcp, rag=None):
         expected = ext_type_map.get(ext, "")
         mismatch = bool(expected and expected.lower() not in file_result.lower())
 
+        masquerade_item = {"file": file_path, "ext": ext, "detected": file_result}
+        if mismatch:
+            masquerade_item["mitre_techniques"] = map_finding_to_techniques(
+                f"masquerade file type mismatch {ext} {file_result} T1036.007")
+            enrich_findings(rag, [masquerade_item],
+                            lambda i: f"file masquerading extension mismatch {i.get('ext')} actual type {i.get('detected')} T1036.007")
+
         data = {
             "file_path": file_path,
             "file_extension": ext,
@@ -491,6 +528,8 @@ def register_file_carving_tools(mcp, rag=None):
             "extension_mismatch": mismatch,
             "masquerade_suspected": mismatch,
             "mitre": "T1036.007 — Masquerading: Double File Extension" if mismatch else "",
+            "mitre_techniques": masquerade_item.get("mitre_techniques", []),
+            "rag_context": build_rag_summary(rag, "file masquerading double extension T1036.007") if mismatch else [],
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("get_file_type", data, audit_id)

@@ -26,6 +26,9 @@ from pathlib import Path
 from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter, get_tool_count
 from mcp_server.config import MAX_TOOL_TIMEOUT, EXPORTS_DIR
 from mcp_server.parsers.forensic_knowledge import wrap_response
+from mcp_server.parsers.browser_parser import classify_chrome_rows, classify_downloads, build_browser_summary
+from mcp_server.parsers.rag_enrichment import enrich_findings, build_rag_summary
+from mcp_server.parsers.mitre_auto_map import map_finding_to_techniques
 
 # Chrome epoch: Jan 1, 1601 → Unix epoch offset in microseconds
 _CHROME_EPOCH_OFFSET = 11644473600 * 1_000_000
@@ -166,13 +169,27 @@ def register_browser_artifact_tools(mcp, rag=None):
             for r in dl_rows if "error" not in r
         ]
 
+        # Middleware parser: classify with browser_parser + add MITRE tags
+        _, mp_suspicious = classify_chrome_rows(visits)
+        _, mp_dl_suspicious = classify_downloads(downloads)
+        browser_summary = build_browser_summary(visits, mp_suspicious)
+
+        # RAG enrichment on each suspicious visit
+        enrich_findings(
+            rag, suspicious_visits + cloud_exfil_visits,
+            lambda v: f"browser visit exfiltration cloud storage {v.get('url', '')} {v.get('flags', [])}",
+        )
+
         data = {
             "profile_path": str(profile_path),
             "total_history_entries": len(visits),
             "suspicious_visits": suspicious_visits[:50],
             "cloud_exfil_visits": cloud_exfil_visits[:50],
+            "parser_summary": browser_summary,
+            "suspicious_downloads": mp_dl_suspicious[:50],
             "recent_history": visits[:100],
             "downloads": downloads[:100],
+            "rag_context": build_rag_summary(rag, "browser forensics cloud exfiltration evidence"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("parse_chrome_history", data, audit_id)
@@ -246,13 +263,19 @@ def register_browser_artifact_tools(mcp, rag=None):
             for r in dl_rows if "error" not in r
         ]
 
+        _, mp_suspicious = classify_chrome_rows(visits)
+        enrich_findings(rag, suspicious + cloud_exfil,
+                        lambda v: f"Firefox browser visit suspicious {v.get('url', '')} {v.get('flags', [])}")
+
         data = {
             "profile_path": str(profile_path),
             "total_history_entries": len(visits),
             "suspicious_visits": suspicious[:50],
             "cloud_exfil_visits": cloud_exfil[:50],
+            "parser_summary": build_browser_summary(visits, mp_suspicious),
             "recent_history": visits[:100],
             "downloads": downloads[:50],
+            "rag_context": build_rag_summary(rag, "Firefox browser forensics exfiltration"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("parse_firefox_history", data, audit_id)

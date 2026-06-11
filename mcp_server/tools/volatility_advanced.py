@@ -24,6 +24,8 @@ from pathlib import Path
 from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter, get_tool_count
 from mcp_server.config import VOLATILITY_CMD, MAX_TOOL_TIMEOUT, EXPORTS_DIR
 from mcp_server.parsers.forensic_knowledge import wrap_response
+from mcp_server.parsers.rag_enrichment import enrich_findings, enrich_single, build_rag_summary
+from mcp_server.parsers.mitre_auto_map import map_finding_to_techniques
 
 
 def _vol(image_path: str, plugin: str, extra: list[str] | None = None) -> tuple[str, str]:
@@ -75,11 +77,17 @@ def register_volatility_advanced_tools(mcp, rag=None):
                 entry["suspicious_reason"] = "Non-standard module path"
                 suspicious.append(entry)
 
+        for m in suspicious:
+            m["mitre_techniques"] = map_finding_to_techniques(m.get("raw", ""))
+        enrich_findings(rag, suspicious,
+                        lambda m: f"suspicious kernel driver module rootkit unsigned {m.get('raw', '')} T1014")
+
         data = {
             "image_path": image_path,
             "total_modules": len(modules),
             "suspicious_modules": suspicious[:30],
             "all_modules": modules[:200],
+            "rag_context": build_rag_summary(rag, "kernel rootkit driver module T1014"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("get_modules", data, audit_id)
@@ -114,12 +122,16 @@ def register_volatility_advanced_tools(mcp, rag=None):
                     hooked.append(entry)
                 all_entries.append(entry)
 
+        enrich_findings(rag, hooked[:10],
+                        lambda h: f"IRP hook kernel driver rootkit {h.get('raw', '')} T1014")
+
         data = {
             "image_path": image_path,
             "total_irp_entries": len(all_entries),
             "hooked_handlers": hooked[:50],
             "all_irp_entries": all_entries[:200],
             "forensic_note": "Handlers pointing outside the owning driver = IRP hook (T1014 Rootkit)",
+            "rag_context": build_rag_summary(rag, "IRP hook kernel rootkit driver T1014"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("get_driverirp", data, audit_id)
@@ -209,12 +221,17 @@ def register_volatility_advanced_tools(mcp, rag=None):
             elif len(parts) >= 2:
                 accounts.append({"username": parts[0].strip(), "raw": line[:100]})
 
+        suspicious_accounts = [a for a in accounts if not a.get("empty_password", True)]
+        enrich_findings(rag, suspicious_accounts,
+                        lambda a: f"credential dumping SAM NTLM hash {a.get('username', '')} T1003.002")
+
         data = {
             "image_path": image_path,
             "account_count": len(accounts),
             "accounts": accounts,
             "mitre": "T1003.002 — OS Credential Dumping: Security Account Manager",
             "next_step": "Submit ntlm_hash values to lookup_hash_reputation for known-password identification.",
+            "rag_context": build_rag_summary(rag, "SAM credential dumping pass-the-hash NTLM T1003.002"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("get_hashdump", data, audit_id)
@@ -251,11 +268,15 @@ def register_volatility_advanced_tools(mcp, rag=None):
         if current:
             secrets.append(current)
 
+        enrich_findings(rag, secrets[:5],
+                        lambda s: f"LSA secrets credential exposure {s.get('secret_name', '')} T1003.004")
+
         data = {
             "image_path": image_path,
             "secret_count": len(secrets),
             "lsa_secrets": secrets,
             "mitre": "T1003.004 — OS Credential Dumping: LSA Secrets",
+            "rag_context": build_rag_summary(rag, "LSA secrets credential dumping T1003.004 service accounts"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("get_lsadump", data, audit_id)

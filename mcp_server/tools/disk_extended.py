@@ -18,6 +18,8 @@ from pathlib import Path
 from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter, get_tool_count
 from mcp_server.config import MAX_TOOL_TIMEOUT, EXPORTS_DIR
 from mcp_server.parsers.forensic_knowledge import wrap_response
+from mcp_server.parsers.rag_enrichment import enrich_findings, build_rag_summary
+from mcp_server.parsers.mitre_auto_map import map_finding_to_techniques
 
 
 def register_disk_extended_tools(mcp, rag=None):
@@ -301,6 +303,13 @@ def register_disk_extended_tools(mcp, rag=None):
         ips_in_slack = list({m for s in strings_found for m in _re2.findall(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", s)})
         urls_in_slack = list({m for s in strings_found for m in _re2.findall(r"https?://\S+", s)})
 
+        ip_items_slack = [{"value": ip, "type": "ip"} for ip in ips_in_slack[:10]]
+        url_items_slack = [{"value": u, "type": "url"} for u in urls_in_slack[:10]]
+        if ip_items_slack or url_items_slack:
+            enrich_findings(rag, (ip_items_slack + url_items_slack)[:5],
+                            lambda i: f"slack space hidden data IOC {i.get('type')} {i.get('value')} T1027")
+        slack_mitre = map_finding_to_techniques("slack space hidden steganography T1027") if (ips_in_slack or urls_in_slack) else []
+
         data = {
             "image_path": image_path,
             "offset_sectors": offset,
@@ -311,6 +320,8 @@ def register_disk_extended_tools(mcp, rag=None):
             "ips_in_slack": ips_in_slack[:20],
             "urls_in_slack": urls_in_slack[:20],
             "mitre": "T1027 — Obfuscated Files or Information" if (ips_in_slack or urls_in_slack) else "",
+            "mitre_techniques": slack_mitre,
+            "rag_context": build_rag_summary(rag, "file slack space hidden data steganography T1027") if (ips_in_slack or urls_in_slack) else [],
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("analyze_slack_space", data, audit_id)
@@ -373,6 +384,8 @@ def register_disk_extended_tools(mcp, rag=None):
         if md5_match is False or sha256_match is False:
             integrity_ok = False
 
+        integrity_rag = build_rag_summary(rag, "disk image hash mismatch tampering chain of custody") if not integrity_ok else []
+
         data = {
             "image_path": image_path,
             "image_size_bytes": size,
@@ -385,6 +398,7 @@ def register_disk_extended_tools(mcp, rag=None):
             "integrity_verified": integrity_ok,
             "ewf_verification": ewf_verify,
             "chain_of_custody": "VERIFIED" if integrity_ok else "BROKEN — hash mismatch!",
+            "rag_context": integrity_rag,
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("verify_image_integrity", data, audit_id)

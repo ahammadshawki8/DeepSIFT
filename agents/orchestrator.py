@@ -1,8 +1,9 @@
 """
 LangGraph multi-agent forensic orchestrator.
 
-Fan-out architecture: memory, disk, and network agents run in parallel,
+Fan-out architecture: memory, disk, network, and browser agents run in sequence,
 results are synthesized, then a final report is generated.
+Supports all 18 DeepSIFT tool categories via the underlying MCP parsers.
 """
 from __future__ import annotations
 import json
@@ -18,10 +19,13 @@ class ForensicState(TypedDict):
     image_path: str
     disk_image_path: str
     evidence_mount_path: str
+    browser_profile_dir: str
+    email_export_dir: str
     case_dir: str
     memory_findings: dict
     disk_findings: dict
     network_findings: dict
+    browser_findings: dict
     synthesis: dict
     final_report: dict
     iterations: int
@@ -45,13 +49,15 @@ class ForensicOrchestrator:
         wf.add_node("memory_agent", self._memory_agent)
         wf.add_node("disk_agent", self._disk_agent)
         wf.add_node("network_agent", self._network_agent)
+        wf.add_node("browser_agent", self._browser_agent)
         wf.add_node("synthesis_agent", self._synthesis_agent)
         wf.add_node("report_agent", self._report_agent)
 
         wf.set_entry_point("memory_agent")
         wf.add_edge("memory_agent", "disk_agent")
         wf.add_edge("disk_agent", "network_agent")
-        wf.add_edge("network_agent", "synthesis_agent")
+        wf.add_edge("network_agent", "browser_agent")
+        wf.add_edge("browser_agent", "synthesis_agent")
         wf.add_edge("synthesis_agent", "report_agent")
         wf.add_edge("report_agent", END)
 
@@ -273,12 +279,86 @@ class ForensicOrchestrator:
 
         return {"network_findings": findings}
 
+    def _browser_agent(self, state: ForensicState) -> dict:
+        """Browser and cloud storage artifact analysis."""
+        browser_dir = state.get("browser_profile_dir", "")
+        findings: dict = {}
+
+        if not browser_dir:
+            logger.info("[browser_agent] No browser profile dir provided — skipping")
+            findings["note"] = "No browser_profile_dir in state — pass it to enable browser analysis."
+            return {"browser_findings": findings}
+
+        logger.info(f"[browser_agent] Analyzing browser artifacts in {browser_dir}")
+
+        try:
+            from mcp_server.parsers.browser_parser import classify_chrome_rows, classify_downloads
+            from mcp_server.parsers.cloud_parser import build_cloud_summary
+            from mcp_server.parsers.mitre_auto_map import map_finding_to_techniques
+            import sqlite3
+
+            # Chrome history
+            history_db = Path(browser_dir) / "Default/History"
+            if history_db.exists():
+                try:
+                    import shutil, tempfile
+                    tmp = tempfile.mktemp(suffix=".db")
+                    shutil.copy2(str(history_db), tmp)
+                    with sqlite3.connect(tmp) as conn:
+                        rows = conn.execute(
+                            "SELECT url, title, visit_count, last_visit_time FROM urls ORDER BY last_visit_time DESC LIMIT 500"
+                        ).fetchall()
+                    Path(tmp).unlink(missing_ok=True)
+                    url_rows = [{"url": r[0], "title": r[1], "visit_count": r[2]} for r in rows]
+                    classified = classify_chrome_rows(url_rows)
+                    findings["chrome_history"] = classified
+                    suspicious_urls = [u for u in classified if u.get("risk") in ("HIGH", "MEDIUM")]
+                    for u in suspicious_urls:
+                        u["mitre_techniques"] = map_finding_to_techniques(
+                            f"browser URL {u.get('url', '')} {u.get('risk_reason', '')}"
+                        )
+                    findings["suspicious_urls"] = suspicious_urls
+                    logger.info(f"[browser_agent] Chrome: {len(classified)} URLs, {len(suspicious_urls)} suspicious")
+                except Exception as e:
+                    findings["chrome_error"] = str(e)
+
+            # Downloads
+            if history_db.exists():
+                try:
+                    import shutil, tempfile
+                    tmp = tempfile.mktemp(suffix=".db")
+                    shutil.copy2(str(history_db), tmp)
+                    with sqlite3.connect(tmp) as conn:
+                        dl_rows = conn.execute(
+                            "SELECT target_path, referrer, tab_url, total_bytes, state FROM downloads LIMIT 200"
+                        ).fetchall()
+                    Path(tmp).unlink(missing_ok=True)
+                    downloads = [{"target": r[0], "referrer": r[1], "url": r[2], "bytes": r[3]} for r in dl_rows]
+                    findings["downloads"] = classify_downloads(downloads)
+                except Exception as e:
+                    findings["download_error"] = str(e)
+
+            if self.rag and findings.get("suspicious_urls"):
+                from mcp_server.parsers.rag_enrichment import enrich_findings
+                enrich_findings(
+                    self.rag,
+                    findings["suspicious_urls"][:5],
+                    lambda u: f"browser C2 exfiltration URL {u.get('url', '')} {u.get('risk_reason', '')}"
+                )
+
+        except Exception as e:
+            logger.error(f"[browser_agent] Error: {e}")
+            findings["error"] = str(e)
+
+        return {"browser_findings": findings}
+
     def _synthesis_agent(self, state: ForensicState) -> dict:
-        """Cross-correlates memory, disk, and network findings. Aggregates MITRE techniques."""
+        """Cross-correlates memory, disk, network, and browser findings. Aggregates MITRE techniques."""
         logger.info("[synthesis_agent] Correlating findings")
         memory = state.get("memory_findings", {})
         disk = state.get("disk_findings", {})
         network = state.get("network_findings", {})
+        browser = state.get("browser_findings", {})
 
         suspicious_procs = {
             p["pid"]: p["name"]
@@ -303,6 +383,9 @@ class ForensicOrchestrator:
         for conn in network.get("suspicious_connections", []):
             for t in conn.get("mitre_techniques", []):
                 mitre_tids.add(t["technique_id"])
+        for url in browser.get("suspicious_urls", []):
+            for t in url.get("mitre_techniques", []):
+                mitre_tids.add(t["technique_id"])
 
         synthesis = {
             "correlated_suspicious_processes": list(suspicious_procs.values()),
@@ -318,6 +401,8 @@ class ForensicOrchestrator:
             ],
             "high_risk_injections": memory.get("high_risk_injections", []),
             "external_ips": network.get("external_ips", []),
+            "suspicious_browser_urls": browser.get("suspicious_urls", []),
+            "browser_downloads": browser.get("downloads", []),
             "mitre_techniques": sorted(mitre_tids),
             "total_suspicious_processes": len(suspicious_procs),
             "total_suspicious_connections": len(suspicious_conns),
@@ -362,6 +447,7 @@ class ForensicOrchestrator:
                 for p in memory.get("suspicious_processes", [])
             ],
             "network_iocs": synthesis.get("external_ips", []),
+            "suspicious_browser_urls": synthesis.get("suspicious_browser_urls", []),
             "mitre_techniques": synthesis.get("mitre_techniques", []),
             "timeline": timeline,
             "confidence": confidence,
@@ -386,6 +472,7 @@ class ForensicOrchestrator:
         n_inject = len(synthesis.get("high_risk_injections", []))
         ips = synthesis.get("external_ips", [])
         mitre = synthesis.get("mitre_techniques", [])
+        browser_urls = synthesis.get("suspicious_browser_urls", [])
 
         parts = []
         if n_procs:
@@ -396,6 +483,8 @@ class ForensicOrchestrator:
             parts.append(f"{n_conns} suspicious network connection(s) observed")
         if ips:
             parts.append(f"External IPs contacted: {', '.join(ips[:5])}")
+        if browser_urls:
+            parts.append(f"{len(browser_urls)} suspicious browser URL(s) identified")
         if mitre:
             parts.append(f"ATT&CK techniques: {', '.join(mitre[:5])}")
         if not parts:
@@ -411,15 +500,19 @@ class ForensicOrchestrator:
         case_dir: str = "./analysis",
         disk_image_path: str = "",
         evidence_mount_path: str = "",
+        browser_profile_dir: str = "",
+        email_export_dir: str = "",
     ) -> dict:
         """
         Run full multi-agent investigation.
 
         Args:
-            image_path: Path to memory image (.raw, .vmem, .mem).
-            case_dir: Directory for output files.
-            disk_image_path: Optional path to disk image (.E01, .dd) for disk analysis.
+            image_path:          Path to memory image (.raw, .vmem, .mem).
+            case_dir:            Directory for output files.
+            disk_image_path:     Optional path to disk image (.E01, .dd) for disk analysis.
             evidence_mount_path: Optional path to mounted evidence volume for EZ Tools.
+            browser_profile_dir: Optional path to browser profile directory for artifact analysis.
+            email_export_dir:    Optional path to exported email directory (.pst/.ost/.eml).
 
         Returns:
             findings dict with summary, suspicious_processes, network_iocs,
@@ -429,10 +522,13 @@ class ForensicOrchestrator:
             "image_path": image_path,
             "disk_image_path": disk_image_path,
             "evidence_mount_path": evidence_mount_path,
+            "browser_profile_dir": browser_profile_dir,
+            "email_export_dir": email_export_dir,
             "case_dir": case_dir,
             "memory_findings": {},
             "disk_findings": {},
             "network_findings": {},
+            "browser_findings": {},
             "synthesis": {},
             "final_report": {},
             "iterations": 0,
@@ -453,6 +549,8 @@ if __name__ == "__main__":
     parser.add_argument("--case-dir", default="./analysis", help="Output directory for findings")
     parser.add_argument("--disk-image", default="", help="Optional path to disk image")
     parser.add_argument("--evidence-mount", default="", help="Optional path to mounted evidence volume")
+    parser.add_argument("--browser-dir", default="", help="Optional path to browser profile directory")
+    parser.add_argument("--email-dir", default="", help="Optional path to email export directory")
     args = parser.parse_args()
 
     orchestrator = ForensicOrchestrator()
@@ -460,5 +558,7 @@ if __name__ == "__main__":
         args.image, args.case_dir,
         disk_image_path=args.disk_image,
         evidence_mount_path=args.evidence_mount,
+        browser_profile_dir=args.browser_dir,
+        email_export_dir=args.email_dir,
     )
     print(json.dumps(report, indent=2, default=str))

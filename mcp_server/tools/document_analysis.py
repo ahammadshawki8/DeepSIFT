@@ -19,6 +19,11 @@ from pathlib import Path
 from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter, get_tool_count
 from mcp_server.config import MAX_TOOL_TIMEOUT
 from mcp_server.parsers.forensic_knowledge import wrap_response
+from mcp_server.parsers.document_parser import (
+    classify_pdf, classify_vba_macro, classify_rtf_clsid, classify_dde_text, classify_zip_entry, doc_mitre_map
+)
+from mcp_server.parsers.rag_enrichment import enrich_findings, enrich_single, build_rag_summary
+from mcp_server.parsers.mitre_auto_map import map_finding_to_techniques
 
 
 def register_document_analysis_tools(mcp, rag=None):
@@ -92,13 +97,21 @@ def register_document_analysis_tools(mcp, rag=None):
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
+        # Middleware parser: structured PDF risk classification
+        risk_level, mitre_techniques, kw_findings = classify_pdf(suspicious_keywords)
+        enrich_findings(rag, kw_findings,
+                        lambda f: f"PDF malicious keyword {f.get('keyword', '')} malware phishing")
+
         data = {
             "pdf_path": pdf_path,
             "suspicious_pdf_keywords": suspicious_keywords,
-            "risk_level": "HIGH" if suspicious_keywords else "LOW",
+            "risk_level": risk_level,
+            "mitre_techniques": mitre_techniques,
+            "keyword_findings": kw_findings,
             "pdfid_summary": pdfid_result[:2000],
             "suspicious_objects": pdf_objects[:10],
             "mitre": "T1566.001 — Phishing: Spearphishing Attachment" if suspicious_keywords else "",
+            "rag_context": build_rag_summary(rag, "malicious PDF JavaScript OpenAction phishing attachment exploit"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("analyze_pdf_doc", data, audit_id)
@@ -157,13 +170,27 @@ def register_document_analysis_tools(mcp, rag=None):
         except (json.JSONDecodeError, TypeError):
             macros = [{"raw": result.stdout[:3000]}]
 
+        # Middleware parser: classify each macro code block
+        classified_macros: list[dict] = []
+        for m in macros:
+            code = m.get("code_snippet", "")
+            mp_risk, patterns = classify_vba_macro(code)
+            m["classified_risk"] = mp_risk
+            m["malicious_patterns"] = patterns
+            m["mitre_techniques"] = doc_mitre_map("OLE", mp_risk, patterns)
+            classified_macros.append(m)
+
+        enrich_findings(rag, [m for m in classified_macros if m.get("classified_risk") == "HIGH"],
+                        lambda m: f"malicious VBA macro AutoOpen Shell CreateObject {m.get('malicious_patterns', [])}")
+
         data = {
             "doc_path": doc_path,
             "macro_count": len(macros),
             "risk_level": risk_level,
-            "macros": macros[:20],
+            "macros": classified_macros[:20],
             "iocs": iocs[:50],
             "mitre": "T1566.001 — Phishing: Spearphishing Attachment; T1059.005 — VBA" if macros else "",
+            "rag_context": build_rag_summary(rag, "VBA macro malware maldoc phishing T1059.005"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("analyze_ole_doc", data, audit_id)
@@ -377,12 +404,19 @@ def register_document_analysis_tools(mcp, rag=None):
             except Exception:
                 pass
 
+        # Middleware parser: use document_parser for structured DDE detection
+        mp_dde = classify_dde_text(" ".join(str(f.get("context", "")) for f in dde_findings))
+        dde_findings.extend(mp_dde)
+        enrich_findings(rag, dde_findings,
+                        lambda f: f"DDE Dynamic Data Exchange command injection {f.get('pattern', '')} T1559.002")
+
         data = {
             "doc_path": doc_path,
             "dde_finding_count": len(dde_findings),
             "dde_findings": dde_findings[:50],
             "risk_level": "HIGH" if dde_findings else "LOW",
             "mitre": "T1559.002 — DDE" if dde_findings else "",
+            "rag_context": build_rag_summary(rag, "DDE Dynamic Data Exchange Office exploitation T1559.002"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("detect_dde_payload", data, audit_id)

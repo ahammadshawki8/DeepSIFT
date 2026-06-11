@@ -16,6 +16,8 @@ from pathlib import Path
 
 from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter, get_tool_count
 from mcp_server.parsers.forensic_knowledge import wrap_response
+from mcp_server.parsers.rag_enrichment import build_rag_summary
+from mcp_server.parsers.mitre_auto_map import map_finding_to_techniques
 
 
 def register_threat_intel_extended_tools(mcp, rag=None):
@@ -71,18 +73,24 @@ def register_threat_intel_extended_tools(mcp, rag=None):
         malicious = stats.get("malicious", 0)
         total = sum(stats.values())
 
+        verdict = "MALICIOUS" if malicious > 3 else "SUSPICIOUS" if malicious > 0 else "CLEAN"
+        rag_query = f"malware hash {file_hash} {attrs.get('type_description', '')} detection ratio {malicious}/{total}"
+        rag_context = build_rag_summary(rag, rag_query) if malicious > 0 else []
+
         data = {
             "hash": file_hash,
             "malicious_detections": malicious,
             "total_engines": total,
             "detection_ratio": f"{malicious}/{total}",
-            "verdict": "MALICIOUS" if malicious > 3 else "SUSPICIOUS" if malicious > 0 else "CLEAN",
+            "verdict": verdict,
             "file_type": attrs.get("type_description", ""),
             "file_size": attrs.get("size", 0),
             "first_submission": attrs.get("first_submission_date", ""),
             "last_analysis_date": attrs.get("last_analysis_date", ""),
             "known_filenames": attrs.get("names", [])[:20],
             "vt_link": f"https://www.virustotal.com/gui/file/{file_hash}",
+            "mitre_techniques": map_finding_to_techniques(f"malware {verdict} hash {file_hash}") if malicious > 0 else [],
+            "rag_context": rag_context,
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("lookup_hash_reputation", data, audit_id)
@@ -149,11 +157,16 @@ def register_threat_intel_extended_tools(mcp, rag=None):
         else:
             vt_result = {"note": "VT_API_KEY not set — skipping VirusTotal lookup"}
 
+        domain_verdict = "MALICIOUS" if vt_result.get("malicious", 0) > 3 else "UNKNOWN"
+        domain_rag = build_rag_summary(rag, f"malicious domain C2 {domain} threat intel") if vt_result.get("malicious", 0) > 0 else []
+
         data = {
             "domain": domain,
             "whois": whois_data,
             "virustotal": vt_result,
-            "verdict": "MALICIOUS" if vt_result.get("malicious", 0) > 3 else "UNKNOWN",
+            "verdict": domain_verdict,
+            "mitre_techniques": map_finding_to_techniques(f"C2 domain {domain} T1071 T1568") if domain_verdict == "MALICIOUS" else [],
+            "rag_context": domain_rag,
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("lookup_domain_reputation", data, audit_id)

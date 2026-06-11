@@ -457,16 +457,18 @@ class VigiaRunner:
 
         why_section = (
             "\n## DeepSIFT Differentiators vs Competitors\n\n"
-            "| Feature | DeepSIFT | casefile | agentic-dart | Valhuntir |\n"
-            "|---------|:--------:|:--------:|:------------:|:---------:|\n"
-            "| Post-hoc grounding verification | ✅ (verbatim token match) | ✅ (CSV) | ❌ | ❌ |\n"
-            "| Quantified confidence (0-100) | ✅ (4-axis) | ❌ | ❌ | ❌ |\n"
-            "| Contradiction detection | ✅ (6 types) | ❌ | ❌ | ❌ |\n"
-            "| RAG at every tool call | ✅ | ❌ | ❌ | ❌ |\n"
-            "| Hayabusa Sigma rules | ✅ (3700+) | ❌ | ❌ | ✅ |\n"
-            "| Typed tool count | ~65 | ~30 | ~25 | ~90 |\n"
-            "| Observation/interpretation split | ✅ | ❌ | ❌ | ❌ |\n"
-            "| UNRESOLVED_CONTRADICTION findings | ✅ | ❌ | ❌ | ❌ |\n"
+            "| Feature | DeepSIFT | casefile | agentic-dart | Valhuntir | Mulder |\n"
+            "|---------|:--------:|:--------:|:------------:|:---------:|:------:|\n"
+            "| Post-hoc grounding verification | ✅ (verbatim token match) | ✅ (CSV) | ❌ | ❌ | ❌ |\n"
+            "| Quantified confidence (0-100) | ✅ (4-axis) | ❌ | ❌ | ❌ | ❌ |\n"
+            "| Contradiction detection | ✅ (6 types) | ❌ | ❌ | ❌ | ❌ |\n"
+            "| RAG at every tool call | ✅ | ❌ | ❌ | ❌ | ❌ |\n"
+            "| Middleware parser per category | ✅ (5 parsers) | ❌ | ❌ | ❌ | ❌ |\n"
+            "| Hayabusa Sigma rules | ✅ (3700+) | ❌ | ❌ | ✅ | ❌ |\n"
+            "| Typed tool count | **148** | ~30 | ~25 | ~90 | 140+ |\n"
+            "| Observation/interpretation split | ✅ | ❌ | ❌ | ❌ | ❌ |\n"
+            "| UNRESOLVED_CONTRADICTION findings | ✅ | ❌ | ❌ | ❌ | ❌ |\n"
+            "| Forensic knowledge envelope | ✅ (148 entries) | ❌ | ❌ | ❌ | ❌ |\n"
         )
 
         return header + agg_table + per_case_rows + errors_section + why_section

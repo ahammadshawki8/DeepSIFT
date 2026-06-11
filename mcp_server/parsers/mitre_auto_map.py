@@ -109,6 +109,10 @@ _EXFIL_RULES: list[tuple[str, str, str]] = [
     ("icloud", "T1567.002", "Exfiltration to Cloud Storage"),
     ("sharepoint", "T1567.002", "Exfiltration to Cloud Storage"),
     ("usb", "T1052.001", "Exfiltration over Physical Medium: USB"),
+    ("cloud_exfil", "T1567.002", "Exfiltration to Cloud Storage"),
+    ("large_volume_transfer", "T1048", "Exfiltration Over Alternative Protocol"),
+    ("dns_tunneling", "T1071.004", "Application Layer Protocol: DNS"),
+    ("dns_exfil", "T1071.004", "Application Layer Protocol: DNS"),
 ]
 
 _LATERAL_RULES: list[tuple[str, str, str]] = [
@@ -116,6 +120,86 @@ _LATERAL_RULES: list[tuple[str, str, str]] = [
     ("admin\\$", "T1021.002", "Remote Services: SMB/Windows Admin Shares"),
     ("wmic", "T1047", "Windows Management Instrumentation"),
     ("winrm", "T1021.006", "Remote Services: Windows Remote Management"),
+    ("rdp bitmap", "T1021.001", "Remote Services: Remote Desktop Protocol"),
+]
+
+# Browser / web rules
+_BROWSER_RULES: list[tuple[str, str, str]] = [
+    ("cloud_exfil_domain", "T1567.002", "Exfiltration to Cloud Storage"),
+    ("c2_pattern", "T1071.001", "Application Layer Protocol: Web Protocols"),
+    ("suspicious_download", "T1105", "Ingress Tool Transfer"),
+    ("url_shortener", "T1036", "Masquerading"),
+    ("executable_downloaded", "T1105", "Ingress Tool Transfer"),
+    ("malicious extension", "T1176", "Browser Extensions"),
+]
+
+# Document / file rules
+_DOCUMENT_RULES: list[tuple[str, str, str]] = [
+    ("web_shell", "T1505.003", "Server Software Component: Web Shell"),
+    ("vba macro", "T1059.005", "Command and Scripting Interpreter: VBA"),
+    ("autoopen", "T1059.005", "Command and Scripting Interpreter: VBA"),
+    ("dde", "T1559.002", "Dynamic Data Exchange"),
+    ("pdf.*javascript", "T1059.007", "Command and Scripting Interpreter: JavaScript"),
+    ("openaction", "T1566.001", "Phishing: Spearphishing Attachment"),
+    ("equation editor", "T1203", "Exploitation for Client Execution"),
+    ("zip bomb", "T1027", "Obfuscated Files or Information"),
+    ("nested zip", "T1027", "Obfuscated Files or Information"),
+    ("path_traversal", "T1083", "File and Directory Discovery"),
+]
+
+# Anti-forensics rules
+_AF_RULES: list[tuple[str, str, str]] = [
+    ("timestomp", "T1070.006", "Indicator Removal: Timestomp"),
+    ("si.*fn.*delta", "T1070.006", "Indicator Removal: Timestomp"),
+    ("log.*clear", "T1070.001", "Indicator Removal: Clear Windows Event Logs"),
+    ("sdelete", "T1070.004", "Indicator Removal: File Deletion"),
+    ("secure.delet", "T1070.004", "Indicator Removal: File Deletion"),
+    ("bleachbit", "T1070.004", "Indicator Removal: File Deletion"),
+    ("vss.*delete", "T1490", "Inhibit System Recovery"),
+    ("ads.*stream", "T1564.004", "Hide Artifacts: NTFS File Attributes"),
+    ("history.*wipe", "T1070.003", "Indicator Removal: Clear Command History"),
+]
+
+# Linux forensics rules
+_LINUX_RULES: list[tuple[str, str, str]] = [
+    ("ld_preload", "T1574.006", "Hijack Execution Flow: Dynamic Linker Hijacking"),
+    ("hidden.*module", "T1014", "Rootkit"),
+    ("syscall.*hook", "T1014", "Rootkit"),
+    ("crontab", "T1053.003", "Scheduled Task/Job: Cron"),
+    ("bash.*history", "T1070.003", "Indicator Removal: Clear Command History"),
+    ("xmrig|cryptominer|minerd", "T1496", "Resource Hijacking"),
+    ("reverse shell", "T1059.004", "Command and Scripting Interpreter: Unix Shell"),
+    ("/dev/tcp", "T1059.004", "Command and Scripting Interpreter: Unix Shell"),
+    ("useradd.*sudo", "T1136.001", "Create Account: Local Account"),
+]
+
+# Network log rules
+_NETLOG_RULES: list[tuple[str, str, str]] = [
+    ("web_shell_access", "T1505.003", "Server Software Component: Web Shell"),
+    ("sql_injection", "T1190", "Exploit Public-Facing Application"),
+    ("directory_traversal", "T1083", "File and Directory Discovery"),
+    ("scanner.*agent", "T1595.001", "Active Scanning"),
+    ("port_scan", "T1046", "Network Service Discovery"),
+    ("zeek.*beacon", "T1071.001", "Application Layer Protocol: Web Protocols"),
+    ("rdp.*cache", "T1021.001", "Remote Services: Remote Desktop Protocol"),
+    ("netflow.*exfil", "T1041", "Exfiltration Over C2 Channel"),
+]
+
+# Disk / file carving rules
+_DISK_RULES: list[tuple[str, str, str]] = [
+    ("slack.*space.*ioc", "T1027", "Obfuscated Files or Information"),
+    ("carved.*executable", "T1105", "Ingress Tool Transfer"),
+    ("hash.*mismatch", "T1565", "Data Manipulation"),
+    ("integrity.*broken", "T1565", "Data Manipulation"),
+    ("masquerade_suspected", "T1036.007", "Masquerading: Double File Extension"),
+]
+
+# Threat intel rules
+_THREAT_INTEL_RULES: list[tuple[str, str, str]] = [
+    ("malicious.*hash", "T1036", "Masquerading"),
+    ("high.*detection.*ratio", "T1027", "Obfuscated Files or Information"),
+    ("fuzzy.*similar", "T1027", "Obfuscated Files or Information"),
+    ("newly.*registered.*domain", "T1583.001", "Acquire Infrastructure: Domains"),
 ]
 
 # All rule groups
@@ -123,7 +207,9 @@ _ALL_RULE_GROUPS = (
     _PROCESS_RULES + _INJECTION_RULES + _NETWORK_RULES +
     _CMDLINE_RULES + _SERVICE_RULES + _REGISTRY_RULES +
     _EVENT_RULES + _HIDDEN_PROCESS_RULES + _TIMESTAMP_RULES +
-    _CREDENTIAL_RULES + _EXFIL_RULES + _LATERAL_RULES
+    _CREDENTIAL_RULES + _EXFIL_RULES + _LATERAL_RULES +
+    _BROWSER_RULES + _DOCUMENT_RULES + _AF_RULES +
+    _LINUX_RULES + _NETLOG_RULES + _DISK_RULES + _THREAT_INTEL_RULES
 )
 
 

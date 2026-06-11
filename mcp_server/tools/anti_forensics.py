@@ -19,6 +19,8 @@ from pathlib import Path
 from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter, get_tool_count
 from mcp_server.config import MAX_TOOL_TIMEOUT
 from mcp_server.parsers.forensic_knowledge import wrap_response
+from mcp_server.parsers.rag_enrichment import enrich_findings, build_rag_summary
+from mcp_server.parsers.mitre_auto_map import map_finding_to_techniques
 
 
 def register_anti_forensics_tools(mcp, rag=None):
@@ -98,6 +100,11 @@ def register_anti_forensics_tools(mcp, rag=None):
                     pre_epoch_anomalies.append({"file": file_name, "timestamp": ts_field})
                     break
 
+        for a in anomalies:
+            a["mitre_techniques"] = map_finding_to_techniques(f"timestomping SI FN delta {a.get('file', '')}")
+        enrich_findings(rag, anomalies[:10],
+                        lambda a: f"timestomping MACB manipulation {a.get('file', '')} T1070.006")
+
         data = {
             "mft_json_path": mft_json_path,
             "records_analyzed": len(records),
@@ -106,6 +113,7 @@ def register_anti_forensics_tools(mcp, rag=None):
             "pre_epoch_anomalies": pre_epoch_anomalies[:20],
             "total_anomalies": len(anomalies) + len(round_number_anomalies) + len(pre_epoch_anomalies),
             "mitre": "T1070.006 — Indicator Removal: Timestomping" if anomalies else "",
+            "rag_context": build_rag_summary(rag, "timestomping MACB anti-forensics T1070.006"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("detect_timestomping", data, audit_id)
@@ -175,6 +183,13 @@ def register_anti_forensics_tools(mcp, rag=None):
                 "manual_check": "Look for Event IDs 1102, 104, 4719 in parsed event log output",
             })
 
+        for c in cleared_logs:
+            if isinstance(c, dict) and "event_id" in c:
+                c["mitre_techniques"] = map_finding_to_techniques(
+                    f"event log cleared {c.get('source_file', '')} T1070.001")
+        enrich_findings(rag, [c for c in cleared_logs if isinstance(c, dict) and "event_id" in c][:5],
+                        lambda c: f"Windows event log cleared event ID {c.get('event_id')} T1070.001")
+
         data = {
             "evtx_dir": evtx_dir,
             "log_clear_events": cleared_logs[:50],
@@ -182,6 +197,7 @@ def register_anti_forensics_tools(mcp, rag=None):
             "suspiciously_small_evtx_files": empty_log_files[:20],
             "total_indicators": len(cleared_logs) + len(zero_byte_files) + len(empty_log_files),
             "mitre": "T1070.001 — Indicator Removal: Clear Windows Event Logs" if (cleared_logs or zero_byte_files) else "",
+            "rag_context": build_rag_summary(rag, "event log wiping clearing anti-forensics T1070.001"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("detect_log_wiping", data, audit_id)
@@ -261,11 +277,18 @@ def register_anti_forensics_tools(mcp, rag=None):
                                 "mitre": "T1070.004 — File Deletion",
                             })
 
+        for f in findings:
+            f["mitre_techniques"] = map_finding_to_techniques(
+                f"secure deletion {f.get('tool_detected', '')} T1070.004")
+        enrich_findings(rag, findings[:5],
+                        lambda f: f"secure deletion tool {f.get('tool_detected', '')} anti-forensics evidence destruction")
+
         data = {
             "evidence_root": evidence_root,
             "total_indicators": len(findings),
             "secure_deletion_indicators": findings[:100],
             "mitre": "T1070.004 — File Deletion" if findings else "",
+            "rag_context": build_rag_summary(rag, "secure deletion SDelete Eraser file wiping T1070.004"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("detect_secure_deletion", data, audit_id)
@@ -326,6 +349,11 @@ def register_anti_forensics_tools(mcp, rag=None):
                 pass
 
         suspicious_streams = [s for s in streams if s.get("suspicious")]
+        for s in suspicious_streams:
+            s["mitre_techniques"] = map_finding_to_techniques(
+                f"alternate data stream ADS NTFS hidden {s.get('stream', '')} T1564.004")
+        enrich_findings(rag, suspicious_streams[:5],
+                        lambda s: f"NTFS alternate data stream ADS hidden payload T1564.004 {s.get('stream', '')}")
 
         data = {
             "file_path": file_path,
@@ -333,6 +361,7 @@ def register_anti_forensics_tools(mcp, rag=None):
             "suspicious_streams": suspicious_streams[:50],
             "all_streams": streams[:100],
             "mitre": "T1564.004 — Hide Artifacts: NTFS File Attributes" if suspicious_streams else "",
+            "rag_context": build_rag_summary(rag, "NTFS alternate data streams ADS hidden malware T1564.004"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("detect_ads_streams", data, audit_id)
@@ -391,12 +420,15 @@ def register_anti_forensics_tools(mcp, rag=None):
         if current:
             shadows.append(current)
 
+        vss_rag = build_rag_summary(rag, "VSS shadow copy deletion vssadmin ransomware T1490") if len(shadows) == 0 else []
+
         data = {
             "image_path": image_path,
             "shadow_copy_count": len(shadows),
             "shadow_copies": shadows[:50],
             "note": "If 0 shadows found, attacker may have run: vssadmin delete shadows /all",
             "mitre": "T1490 — Inhibit System Recovery" if len(shadows) == 0 else "",
+            "rag_context": vss_rag,
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("analyze_vss_shadows", data, audit_id)
@@ -460,6 +492,12 @@ def register_anti_forensics_tools(mcp, rag=None):
                     suspicious.append(item)
                     break
 
+        for s in suspicious:
+            s.setdefault("mitre_techniques", map_finding_to_techniques(
+                f"prefetch anomaly {s.get('anomaly', '')} {s.get('executable_name', '')}"))
+        enrich_findings(rag, suspicious[:10],
+                        lambda s: f"prefetch anomaly execution {s.get('executable_name', '')} {s.get('anomaly', '')}")
+
         data = {
             "prefetch_json_path": prefetch_json_path,
             "total_entries": len(entries),
@@ -467,6 +505,7 @@ def register_anti_forensics_tools(mcp, rag=None):
             "temp_path_executions": temp_executions[:50],
             "anti_forensics_tools": af_tools[:50],
             "total_anomalies": len(suspicious),
+            "rag_context": build_rag_summary(rag, "prefetch anti-forensics execution suspicious path T1036 T1070"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("detect_prefetch_anomalies", data, audit_id)
@@ -533,11 +572,19 @@ def register_anti_forensics_tools(mcp, rag=None):
                 "manual_check": f"Search for Event IDs {', '.join(sorted(_TARGET_IDS))} in event log output",
             })
 
+        for f in findings:
+            if "event_id" in f:
+                f["mitre_techniques"] = map_finding_to_techniques(
+                    f"event log tamper audit policy {f.get('description', '')} T1562.002")
+        enrich_findings(rag, [f for f in findings if "event_id" in f][:5],
+                        lambda f: f"event log tampering event ID {f.get('event_id')} audit policy change T1562.002")
+
         data = {
             "evtx_dir": evtx_dir,
             "total_tampering_indicators": len(findings),
             "findings": findings[:100],
             "mitre": "T1562.002 — Impair Defenses" if findings else "",
+            "rag_context": build_rag_summary(rag, "event log tampering audit policy disable T1562.002"),
             "tool_calls_used": get_tool_count(),
         }
         return wrap_response("detect_event_log_tampering", data, audit_id)

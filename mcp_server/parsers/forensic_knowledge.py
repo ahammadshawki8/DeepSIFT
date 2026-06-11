@@ -1495,6 +1495,1334 @@ FORENSIC_KNOWLEDGE: dict[str, dict] = {
             "Run detect_capabilities_capa on both files to compare capability profiles.",
         ],
     },
+
+    # ── Anti-forensics detection ───────────────────────────────────────────────
+
+    "detect_timestomping": {
+        "caveats": [
+            "SI vs FN delta > 2 seconds is suspicious but NOT definitive — some legitimate installers update $SI.",
+            "Round-number timestamps (00:00:00) may be set by backup/imaging software, not just attackers.",
+            "Pre-epoch timestamps may result from clock skew or VM migration, not necessarily anti-forensics.",
+        ],
+        "advisories": [
+            "Do NOT conclude timestomping without corroborating with Shimcache/Prefetch execution evidence.",
+            "A $FN timestamp predating OS installation is highly suspicious but requires timeline cross-check.",
+        ],
+        "corroboration": [
+            "Run parse_shimcache to see if the file appears in execution history despite anomalous timestamp.",
+            "Run parse_prefetch to check execution times against MFT timestamps.",
+            "Run filter_timeline around the anomalous timestamp to see surrounding file system activity.",
+        ],
+    },
+
+    "detect_log_wiping": {
+        "caveats": [
+            "Zero-byte EVTX files are suspicious but may result from log rotation configuration.",
+            "Event ID 1102 requires administrator rights — low-privileged attackers cannot trigger it.",
+            "python-evtx must be installed; without it only file-size checks run.",
+        ],
+        "advisories": [
+            "Absence of log clearing events does NOT mean logs were not wiped — wevtutil.exe leaves no 1102.",
+            "Do NOT conclude log tampering without checking for wevtutil/Clear-EventLog in Prefetch/Shimcache.",
+        ],
+        "corroboration": [
+            "Run detect_event_log_tampering for event ID 4719 (audit policy change).",
+            "Run parse_prefetch to check for wevtutil.exe or powershell.exe execution.",
+            "Run detect_secure_deletion to check if deletion tools were present.",
+        ],
+    },
+
+    "detect_secure_deletion": {
+        "caveats": [
+            "Presence of SDelete/CCleaner in Prefetch proves execution, not necessarily evidence destruction.",
+            "IT departments legitimately use CCleaner/BleachBit — context matters.",
+            "File-system search only covers common installation paths; portable tools may be missed.",
+        ],
+        "advisories": [
+            "Do NOT attribute data destruction without establishing intent and timeline proximity to incident.",
+        ],
+        "corroboration": [
+            "Run detect_timestomping to check if deletion preceded timestamp anomalies.",
+            "Run parse_usn_journal to look for burst file deletion events.",
+            "Run detect_log_wiping to check if logs were also cleared.",
+        ],
+    },
+
+    "detect_ads_streams": {
+        "caveats": [
+            "Zone.Identifier is a legitimate Mark-of-the-Web ADS — not suspicious.",
+            "Streams tool (Sysinternals) may not be available; fls fallback has lower accuracy.",
+            "ADS are NTFS-only; FAT32 and exFAT volumes cannot have ADS.",
+        ],
+        "advisories": [
+            "A suspicious ADS requires content examination (icat) to determine if it is executable code.",
+            "Do NOT report an ADS as malicious without extracting and analyzing its content.",
+        ],
+        "corroboration": [
+            "Extract ADS content with extract_file (icat) and analyze with get_file_type/detect_capabilities_capa.",
+            "Run scan_file_with_yara on extracted ADS content.",
+        ],
+    },
+
+    "analyze_vss_shadows": {
+        "caveats": [
+            "VSS requires NTFS and is often disabled on SSDs for performance reasons — absence is not proof of deletion.",
+            "vshadowinfo may require root/elevated privileges on SIFT.",
+            "Some editions of Windows (Home) have VSS disabled by default.",
+        ],
+        "advisories": [
+            "Zero shadow copies may be normal on SSDs or minimal-install VMs — do NOT conclude ransomware without corroboration.",
+        ],
+        "corroboration": [
+            "Run parse_event_logs and look for Event ID 7036 (service stopped) or vssadmin in process list.",
+            "Run parse_prefetch to check if vssadmin.exe was recently executed.",
+            "Run get_command_history for 'vssadmin delete shadows' or 'wmic shadowcopy delete'.",
+        ],
+    },
+
+    "detect_prefetch_anomalies": {
+        "caveats": [
+            "Prefetch is disabled by default on Windows Server and SSDs with SuperFetch disabled.",
+            "Temp-path execution may be legitimate (installer, update package).",
+            "Anti-forensics tool detection is keyword-based — obfuscated names bypass it.",
+        ],
+        "advisories": [
+            "Execution from %TEMP% alone does NOT confirm malware — corroborate with hash lookup.",
+        ],
+        "corroboration": [
+            "Run parse_shimcache for execution corroboration independent of Prefetch.",
+            "Run parse_amcache to get the SHA1 hash of the executed binary for VT lookup.",
+            "Run parse_event_logs for Event ID 4688 (process creation) if audit policy enabled.",
+        ],
+    },
+
+    "detect_event_log_tampering": {
+        "caveats": [
+            "Event ID 7040 (service start type change) may be legitimate GPO enforcement.",
+            "Requires python-evtx; without it returns a manual check note only.",
+        ],
+        "advisories": [
+            "Audit policy changes via GPO are normal in enterprise environments — check the account that made the change.",
+        ],
+        "corroboration": [
+            "Run detect_log_wiping to correlate with zero-byte EVTX files.",
+            "Run parse_shimcache for auditpol.exe or wevtutil.exe execution.",
+        ],
+    },
+
+    # ── File carving and static analysis ──────────────────────────────────────
+
+    "run_bulk_extractor": {
+        "caveats": [
+            "bulk_extractor extracts features WITHOUT parsing the file system — results may overlap with FS artifacts.",
+            "False positives are common in email and URL feature files (base64 in images, HTML in docs).",
+            "Credit card regex matches are high FP — require manual confirmation.",
+        ],
+        "advisories": [
+            "bulk_extractor emails/URLs are NOT confirmed IOCs — they require manual triage.",
+        ],
+        "corroboration": [
+            "Run lookup_ip_reputation on discovered IPs.",
+            "Run lookup_domain_reputation on discovered domains.",
+            "Cross-reference email addresses with parse_pst_ost for context.",
+        ],
+    },
+
+    "carve_files_foremost": {
+        "caveats": [
+            "File carving recovers partial/fragmented files — many carved files are corrupt or truncated.",
+            "Carving by header/footer only; fragmented files may be unrecoverable.",
+            "High false-positive rate for JPEG (JPEG fragments are common in swap/RAM).",
+        ],
+        "advisories": [
+            "Carved EXE/DLL files may be corrupt — do NOT run them; analyze statically only.",
+            "A carved file may come from deleted legitimate software, not attacker activity.",
+        ],
+        "corroboration": [
+            "Calculate hashes with calculate_file_hashes and look up with lookup_hash_reputation.",
+            "Run get_file_type on carved files to verify actual type.",
+            "Run scan_file_with_yara on carved executables.",
+        ],
+    },
+
+    "carve_files_scalpel": {
+        "caveats": [
+            "scalpel requires a configuration file — default config may not be enabled.",
+            "Same fragmentation and truncation caveats as foremost.",
+        ],
+        "advisories": [
+            "Carved files require hash verification before reporting as evidence.",
+        ],
+        "corroboration": [
+            "Cross-reference carved file timestamps with MFT timeline from parse_mft.",
+            "Run calculate_file_hashes + lookup_hash_reputation on carved executables.",
+        ],
+    },
+
+    "analyze_with_exiftool": {
+        "caveats": [
+            "Metadata can be trivially modified or stripped — absence of metadata is not suspicious.",
+            "GPS coordinates in photos require timezone correction for accurate geolocation.",
+            "LastSavedBy field reflects the Office installation name, not necessarily the attacker's real name.",
+        ],
+        "advisories": [
+            "Author/creator fields are user-controlled — do NOT treat as definitive attacker identity without corroboration.",
+        ],
+        "corroboration": [
+            "Cross-reference author name with parse_sam_hive and parse_event_logs for known usernames.",
+            "Check GPS coordinates against known attacker infrastructure locations.",
+        ],
+    },
+
+    "calculate_file_hashes": {
+        "caveats": [
+            "Hash is only as reliable as the file acquisition — verify image integrity first.",
+            "ssdeep requires the ssdeep binary; falls back to a note if not installed.",
+        ],
+        "advisories": [
+            "A clean VirusTotal result does NOT mean the file is benign — new/targeted malware has 0 detections.",
+        ],
+        "corroboration": [
+            "Run lookup_hash_reputation with the SHA256 for VirusTotal verdict.",
+            "Run detect_capabilities_capa if the file is an executable.",
+            "Run extract_floss_strings to find obfuscated C2 indicators.",
+        ],
+    },
+
+    "detect_capabilities_capa": {
+        "caveats": [
+            "capa requires pip3 install capa and a current rules database.",
+            "Packed/obfuscated binaries defeat capa — run extract_floss_strings + detect_packer first.",
+            "capa rules are static signatures — novel capabilities may not be detected.",
+        ],
+        "advisories": [
+            "capa capability detection is NOT malware classification — a capability may be used legitimately.",
+            "Do NOT report a binary as malware based solely on capa output without additional evidence.",
+        ],
+        "corroboration": [
+            "Run lookup_hash_reputation on the file SHA256.",
+            "Run scan_file_with_yara for family-specific signatures.",
+            "Run extract_floss_strings to find configuration strings not in static code.",
+        ],
+    },
+
+    "extract_floss_strings": {
+        "caveats": [
+            "FLOSS requires pip3 install floss and may be slow on large binaries (>30 seconds).",
+            "FLOSS cannot decode all obfuscation schemes — custom XOR keys and compression may evade it.",
+            "Decoded strings may be from legitimate software components bundled with the malware.",
+        ],
+        "advisories": [
+            "Decoded IP/URL strings are IOC CANDIDATES — they require lookup_ip_reputation confirmation.",
+        ],
+        "corroboration": [
+            "Run lookup_ip_reputation on all decoded IPs.",
+            "Run lookup_domain_reputation on all decoded domains.",
+            "Run detect_capabilities_capa to map decoded string context to MITRE techniques.",
+        ],
+    },
+
+    "get_file_type": {
+        "caveats": [
+            "Magic byte detection covers common types — proprietary formats may be misidentified.",
+            "The 'file' command is not available on all systems; falls back to Python magic byte map.",
+        ],
+        "advisories": [
+            "Extension mismatch alone is suspicious but NOT definitive — some tools legitimately rename files.",
+        ],
+        "corroboration": [
+            "Run analyze_with_exiftool to inspect embedded metadata.",
+            "Run scan_file_with_yara to check for known malware signatures.",
+            "If PE detected: run get_pe_metadata and detect_capabilities_capa.",
+        ],
+    },
+
+    # ── Browser artifacts ──────────────────────────────────────────────────────
+
+    "parse_chrome_history": {
+        "caveats": [
+            "Chrome history is stored in SQLite — WAL file may contain recent entries not in main DB.",
+            "History may be cleared by the user or the attacker — absence is not conclusive.",
+            "Multiple Chrome profiles per user are common — check all profile directories.",
+        ],
+        "advisories": [
+            "A cloud storage domain visit does NOT confirm exfiltration — verify with SRUM bytes_sent.",
+        ],
+        "corroboration": [
+            "Run parse_srum to quantify bytes sent to cloud storage domains.",
+            "Run parse_chrome_extensions to check for data-exfiltrating extensions.",
+            "Run parse_browser_passwords if credential theft is suspected.",
+        ],
+    },
+
+    "parse_firefox_history": {
+        "caveats": [
+            "Firefox uses places.sqlite + WAL — both must be present for complete history.",
+            "Private browsing (Incognito equivalent) history is NOT stored.",
+        ],
+        "advisories": [
+            "Firefox history timestamps are in microseconds since epoch — verify timezone conversion.",
+        ],
+        "corroboration": [
+            "Run parse_srum to quantify network activity from Firefox.",
+            "Cross-reference visited domains with lookup_domain_reputation.",
+        ],
+    },
+
+    "parse_chrome_extensions": {
+        "caveats": [
+            "Extension IDs are stable; names can be changed by the developer.",
+            "Sideloaded extensions (not from Chrome Web Store) are higher risk but may be legitimate enterprise tools.",
+        ],
+        "advisories": [
+            "An extension with webRequest/nativeMessaging permissions is suspicious but not confirmed malicious.",
+        ],
+        "corroboration": [
+            "Search extension IDs in lookup_domain_reputation / external threat databases.",
+            "Run parse_chrome_history to see if the extension was recently installed.",
+        ],
+    },
+
+    "parse_browser_cookies": {
+        "caveats": [
+            "Cookie values are encrypted on Chrome/Edge (DPAPI) — plaintext extraction requires decryption key from user profile.",
+            "Cookies expire — session cookies from an incident may be gone by acquisition time.",
+        ],
+        "advisories": [
+            "Cookie presence does NOT prove session hijacking — confirm with network traffic or auth logs.",
+        ],
+        "corroboration": [
+            "Cross-reference cookie domains with parse_chrome_history URLs.",
+            "Check parse_event_logs for authentication events at matching timestamps.",
+        ],
+    },
+
+    "run_hindsight": {
+        "caveats": [
+            "Hindsight requires pip3 install pyhindsight.",
+            "Results quality depends on Chrome version — very new versions may have schema changes.",
+        ],
+        "advisories": [
+            "Hindsight reconstructed history should be cross-validated against raw SQLite parse_chrome_history.",
+        ],
+        "corroboration": [
+            "Cross-reference Hindsight URLs with lookup_domain_reputation.",
+        ],
+    },
+
+    "parse_browser_passwords": {
+        "caveats": [
+            "Chrome/Edge passwords use DPAPI encryption — DPAPI master key must be available for decryption.",
+            "On a forensic image, DPAPI decryption is not possible without the user's password or domain backup key.",
+        ],
+        "advisories": [
+            "Encrypted password entries prove credential storage but do NOT expose plaintext without decryption key.",
+        ],
+        "corroboration": [
+            "Use get_hashdump (memory) or Volatility lsadump for DPAPI key extraction from live system.",
+        ],
+    },
+
+    "parse_ie_edge_legacy_history": {
+        "caveats": [
+            "IE/Edge Legacy history is in WebCacheV01.dat (ESE database) — requires esedbexport or similar.",
+            "Edge Legacy was replaced by Chromium-based Edge — verify which Edge version is present.",
+        ],
+        "advisories": [
+            "IE compatibility mode visits may appear in Edge Legacy history — check User-Agent for context.",
+        ],
+        "corroboration": [
+            "Cross-reference with parse_lnk_files for file:// URL accesses.",
+        ],
+    },
+
+    "parse_chromium_cache": {
+        "caveats": [
+            "Cache entries may contain partial/truncated content.",
+            "Cache eviction means recent entries may overwrite incident-time entries.",
+        ],
+        "advisories": [
+            "Cached malware delivery pages are evidence of browsing, not execution — corroborate with Prefetch.",
+        ],
+        "corroboration": [
+            "Run parse_chrome_history to match cache URLs to browsing timeline.",
+            "Run scan_file_with_yara on any extracted cached executables.",
+        ],
+    },
+
+    # ── Email artifacts ────────────────────────────────────────────────────────
+
+    "parse_pst_ost": {
+        "caveats": [
+            "Requires readpst (libpst) — install with apt install pst-utils.",
+            "OST files may not be fully exportable if Exchange server is offline.",
+            "PST password protection blocks export.",
+        ],
+        "advisories": [
+            "Email content alone does NOT prove data exfiltration — requires evidence the email was sent.",
+        ],
+        "corroboration": [
+            "Run parse_event_logs for Outlook process events and SMTP connection logs.",
+            "Cross-reference attachment hashes with lookup_hash_reputation.",
+            "Run parse_srum for Outlook process network bytes.",
+        ],
+    },
+
+    "parse_thunderbird": {
+        "caveats": [
+            "Thunderbird stores mail in mbox format — each folder is a flat file.",
+            "IMAP accounts may only cache recent emails locally.",
+        ],
+        "advisories": [
+            "Local mail store only reflects what was downloaded — server-side sent items may not be present.",
+        ],
+        "corroboration": [
+            "Cross-reference sender addresses with known threat actor infrastructure.",
+            "Run analyze_email_headers on suspicious .eml files.",
+        ],
+    },
+
+    "parse_eml_file": {
+        "caveats": [
+            "From/Reply-To headers are trivially spoofed — use Received headers for actual routing.",
+            "DKIM/SPF results in headers are from the receiving MTA, not independently verified here.",
+        ],
+        "advisories": [
+            "A malicious attachment in an .eml does NOT prove the user opened it — check Prefetch/Shimcache.",
+        ],
+        "corroboration": [
+            "Run analyze_email_headers for full spoofing analysis.",
+            "Run calculate_file_hashes + lookup_hash_reputation on all attachments.",
+            "Run scan_file_with_yara on any executable attachments.",
+        ],
+    },
+
+    "extract_email_attachments": {
+        "caveats": [
+            "Bulk extraction may produce thousands of files — triage by extension and hash before analysis.",
+            "Password-protected archives cannot be extracted without the password.",
+        ],
+        "advisories": [
+            "Attachment extraction does NOT mean the attachment was opened — verify with Prefetch/Shimcache.",
+        ],
+        "corroboration": [
+            "Run get_file_type on all EXE/DLL/PDF/DOC attachments.",
+            "Run lookup_hash_reputation on attachment hashes.",
+        ],
+    },
+
+    "analyze_email_headers": {
+        "caveats": [
+            "SPF/DKIM results depend on DNS lookup availability — offline forensics cannot re-verify.",
+            "X-Originating-IP is user-controlled in some mail systems.",
+        ],
+        "advisories": [
+            "A failed SPF result alone is common with legitimate forwarded email — do NOT conclude spoofing.",
+        ],
+        "corroboration": [
+            "Run lookup_ip_reputation on all Received header IPs.",
+            "Cross-reference sender domain with lookup_domain_reputation.",
+        ],
+    },
+
+    # ── Cloud storage artifacts ────────────────────────────────────────────────
+
+    "parse_dropbox_logs": {
+        "caveats": [
+            "Dropbox logs may be incomplete if sync was disabled or the app was uninstalled.",
+            "Log format varies by Dropbox version — parsing may miss fields in newer versions.",
+        ],
+        "advisories": [
+            "A Dropbox sync event proves the file was synced, not that it was intentionally exfiltrated.",
+        ],
+        "corroboration": [
+            "Run parse_srum to quantify bytes uploaded from Dropbox process.",
+            "Cross-reference synced filenames with sensitive file patterns (*.kdbx, *.pfx, source code).",
+        ],
+    },
+
+    "parse_onedrive_logs": {
+        "caveats": [
+            "OneDrive logs are in binary/SQLite format — parsing may be incomplete.",
+            "Corporate OneDrive and personal OneDrive have different log locations.",
+        ],
+        "advisories": [
+            "OneDrive sync of sensitive files may be legitimate corporate policy — check DLP policy context.",
+        ],
+        "corroboration": [
+            "Run parse_srum for OneDrive process network bytes.",
+            "Run parse_event_logs for Azure AD / Office 365 sign-in events.",
+        ],
+    },
+
+    "parse_google_drive_logs": {
+        "caveats": [
+            "Google Drive for Desktop logs may be minimal compared to other cloud providers.",
+        ],
+        "advisories": [
+            "Google Drive sync does NOT confirm exfiltration — verify with SRUM and network logs.",
+        ],
+        "corroboration": [
+            "Cross-reference with parse_chrome_history for drive.google.com uploads.",
+            "Run parse_srum for GoogleDriveFS process bytes.",
+        ],
+    },
+
+    "parse_slack_artifacts": {
+        "caveats": [
+            "Slack desktop caches only the channels and messages downloaded to the local client.",
+            "Enterprise Slack may have DLP controls that prevent sensitive content from reaching the client.",
+        ],
+        "advisories": [
+            "Slack message content in local cache may be incomplete — full history requires eDiscovery export.",
+        ],
+        "corroboration": [
+            "Run parse_event_logs for Slack network activity.",
+            "Cross-reference file shares with lookup_hash_reputation.",
+        ],
+    },
+
+    "parse_teams_artifacts": {
+        "caveats": [
+            "Teams stores data in multiple SQLite databases across user profile directories.",
+            "Teams data is partially encrypted (DPAPI) — some fields may not be decryptable offline.",
+        ],
+        "advisories": [
+            "Teams chat content may be truncated — full audit trail requires Microsoft Purview compliance export.",
+        ],
+        "corroboration": [
+            "Run parse_event_logs for Teams-related authentication (Azure AD token) events.",
+        ],
+    },
+
+    "parse_icloud_logs": {
+        "caveats": [
+            "iCloud for Windows logs are minimal compared to macOS native iCloud logs.",
+            "iCloud log format changes frequently with Apple software updates.",
+        ],
+        "advisories": [
+            "iCloud sync events require correlation with SRUM network bytes to confirm exfiltration volume.",
+        ],
+        "corroboration": [
+            "Run parse_srum for iCloud process bytes.",
+        ],
+    },
+
+    # ── Document analysis ──────────────────────────────────────────────────────
+
+    "analyze_pdf_doc": {
+        "caveats": [
+            "pdfid counts keyword occurrences — a high /JavaScript count may be from legitimate analytics.",
+            "Embedded objects require extraction (pdfextract) for full analysis.",
+            "PDF risk score is heuristic — novel exploits may score low.",
+        ],
+        "advisories": [
+            "Do NOT conclude a PDF is malicious based solely on /JavaScript presence — corroborate with execution evidence.",
+        ],
+        "corroboration": [
+            "Run scan_file_with_yara with the suspicious_strings rule set.",
+            "Check Prefetch/Shimcache for Reader/Acrobat spawning cmd.exe or powershell.exe.",
+            "Run parse_event_logs for process creation (4688) from PDF reader process.",
+        ],
+    },
+
+    "analyze_ole_doc": {
+        "caveats": [
+            "oletools requires pip3 install oletools.",
+            "VBA macro presence alone is normal in many legitimate Office documents.",
+            "Obfuscated macros may evade oletools pattern detection.",
+        ],
+        "advisories": [
+            "Do NOT report a macro as malicious without identifying a specific malicious action (Shell, WScript, download).",
+        ],
+        "corroboration": [
+            "Run parse_event_logs for Office process spawning cmd.exe/wscript.exe (Event 4688).",
+            "Run parse_prefetch for WINWORD.EXE/EXCEL.EXE execution timestamps.",
+            "Run scan_file_with_yara on the document.",
+        ],
+    },
+
+    "analyze_rtf_doc": {
+        "caveats": [
+            "RTF is highly polymorphic — obfuscated RTF may evade rtfobj parsing.",
+            "Embedded objects may require extraction and separate analysis.",
+        ],
+        "advisories": [
+            "RTF with embedded objects requires CLSID lookup to confirm exploit potential.",
+        ],
+        "corroboration": [
+            "Cross-reference extracted CLSIDs with known CVE databases.",
+            "Run parse_event_logs for Office process creation events.",
+        ],
+    },
+
+    "analyze_zip_archive": {
+        "caveats": [
+            "Password-protected ZIPs cannot be inspected without the password.",
+            "ZIP64 extensions may not be fully parsed.",
+        ],
+        "advisories": [
+            "Double-extension detection (.pdf.exe) is heuristic — verify with get_file_type.",
+        ],
+        "corroboration": [
+            "Run get_file_type on all extracted entries.",
+            "Run calculate_file_hashes + lookup_hash_reputation on suspicious entries.",
+        ],
+    },
+
+    "detect_dde_payload": {
+        "caveats": [
+            "DDE/DDEAUTO was patched by Microsoft in 2017 — only affects unpatched Office installations.",
+            "False positives possible in documents with embedded field codes for legitimate purposes.",
+        ],
+        "advisories": [
+            "DDE presence requires corroboration that the document was opened — check Prefetch/recent files.",
+        ],
+        "corroboration": [
+            "Run parse_event_logs for cmd.exe/powershell.exe spawned by WINWORD.EXE.",
+            "Run parse_lnk_files to confirm the document was accessed.",
+        ],
+    },
+
+    # ── Linux forensics ────────────────────────────────────────────────────────
+
+    "get_linux_processes": {
+        "caveats": [
+            "linux.pslist uses Volatility 3 Linux profile — profile must match kernel version exactly.",
+            "Some kernel threads have similar names to malicious processes — verify by path and parent.",
+        ],
+        "advisories": [
+            "A suspicious process name alone is NOT confirmation of compromise — verify path and parent chain.",
+        ],
+        "corroboration": [
+            "Run get_linux_modules to check for kernel rootkit LKMs.",
+            "Run get_linux_network to see if the suspicious process has network connections.",
+            "Run get_linux_malfind for injected code in Linux process address space.",
+        ],
+    },
+
+    "get_linux_bash_history": {
+        "caveats": [
+            "Bash history can be disabled (HISTFILE=/dev/null) or truncated — absence is suspicious.",
+            "Commands from non-interactive sessions (cron, scripts) may not appear in .bash_history.",
+        ],
+        "advisories": [
+            "A single suspicious command in bash history requires timeline corroboration before attribution.",
+        ],
+        "corroboration": [
+            "Run parse_syslog to find corresponding auth/sudo events.",
+            "Run get_linux_modules to check if any kernel module was loaded after the suspicious commands.",
+        ],
+    },
+
+    "get_linux_network": {
+        "caveats": [
+            "linux.netstat reflects connections at memory acquisition time — transient connections may be missed.",
+        ],
+        "advisories": [
+            "An ESTABLISHED connection to an external IP requires lookup_ip_reputation before attribution.",
+        ],
+        "corroboration": [
+            "Run lookup_ip_reputation on all external IPs.",
+            "Run parse_zeek_logs or parse_apache_logs to correlate network activity.",
+        ],
+    },
+
+    "get_linux_modules": {
+        "caveats": [
+            "linux.lsmod lists modules known to the kernel — DKOM-hidden LKMs will NOT appear.",
+            "Unsigned module presence is suspicious but may be a legitimate custom driver.",
+        ],
+        "advisories": [
+            "Do NOT conclude rootkit without corroborating with get_linux_syscall hook detection.",
+        ],
+        "corroboration": [
+            "Run get_linux_syscall to check for syscall table hooks.",
+            "Run get_linux_processes to see if suspicious processes appeared at module load time.",
+        ],
+    },
+
+    "get_linux_syscall": {
+        "caveats": [
+            "Syscall table hook detection requires accurate kernel symbol resolution — version mismatch causes false negatives.",
+        ],
+        "advisories": [
+            "A hooked syscall is very high confidence rootkit evidence but requires kernel symbol corroboration.",
+        ],
+        "corroboration": [
+            "Run get_linux_modules to identify which LKM registered the hook.",
+            "Run get_linux_malfind for userland injection from the same actor.",
+        ],
+    },
+
+    "get_linux_malfind": {
+        "caveats": [
+            "Linux malfind has higher false positive rate than Windows — JIT (Java, Node.js) creates RWX regions.",
+        ],
+        "advisories": [
+            "Linux malfind hits require manual review — do NOT report as confirmed injection without PE/ELF header.",
+        ],
+        "corroboration": [
+            "Cross-reference with get_linux_processes to confirm the PID is suspicious.",
+        ],
+    },
+
+    "get_linux_envars": {
+        "caveats": [
+            "Environment variables reflect process launch state — modified envars may not appear here.",
+        ],
+        "advisories": [
+            "LD_PRELOAD in an environment is strongly suspicious but may be set by legitimate profiling tools.",
+        ],
+        "corroboration": [
+            "Run get_linux_processes to check the process parent chain for the LD_PRELOAD setter.",
+        ],
+    },
+
+    "get_linux_mounts": {
+        "caveats": [
+            "Mount table reflects state at acquisition time — transient mounts may be unmounted.",
+        ],
+        "advisories": [
+            "A hidden bind mount or FUSE mount requires correlation with file system artifacts to confirm purpose.",
+        ],
+        "corroboration": [
+            "Run parse_syslog to find mount/umount events around incident time.",
+        ],
+    },
+
+    "parse_syslog": {
+        "caveats": [
+            "Syslog may be forwarded to a remote host — local copy may be incomplete or truncated.",
+            "Auth.log rotation may have removed pre-incident entries.",
+        ],
+        "advisories": [
+            "Authentication failure bursts may be scan/brute-force noise, not targeted attack — check source IP reputation.",
+        ],
+        "corroboration": [
+            "Run lookup_ip_reputation on source IPs of authentication failures.",
+            "Run get_linux_bash_history to correlate authenticated sessions with commands.",
+        ],
+    },
+
+    "parse_linux_crontab": {
+        "caveats": [
+            "System crontabs (/etc/cron*) and user crontabs (crontab -l) may differ.",
+            "Anacron entries may not appear in standard crontab files.",
+        ],
+        "advisories": [
+            "A crontab entry running a script from /tmp or home directory is suspicious — verify the script content.",
+        ],
+        "corroboration": [
+            "Run get_linux_bash_history to check if crontab was modified during the incident window.",
+            "Run parse_syslog for cron execution entries at the scheduled times.",
+        ],
+    },
+
+    # ── Network forensics extended ─────────────────────────────────────────────
+
+    "parse_zeek_logs": {
+        "caveats": [
+            "Zeek logs reflect network traffic at the sensor — blind spots exist if traffic is encrypted or tunneled.",
+            "DNS over HTTPS (DoH) bypasses DNS log visibility.",
+            "Zeek log retention period may not cover the full incident timeline.",
+        ],
+        "advisories": [
+            "A DNS query to a suspicious domain does NOT confirm a successful connection or data transfer.",
+        ],
+        "corroboration": [
+            "Cross-reference Zeek conn.log bytes with SRUM process bytes for the same time window.",
+            "Run lookup_domain_reputation on all suspicious Zeek DNS queries.",
+            "Run parse_iis_logs or parse_apache_logs to correlate HTTP activity.",
+        ],
+    },
+
+    "parse_iis_logs": {
+        "caveats": [
+            "IIS log timestamps are in UTC — timezone conversion required for incident timeline.",
+            "Scanner/crawler traffic creates significant noise — web shell detection uses extension + parameter patterns.",
+        ],
+        "advisories": [
+            "A web shell URL pattern requires corroboration that the file exists on disk (parse_mft / get_file_listing).",
+        ],
+        "corroboration": [
+            "Run get_file_listing to verify the web shell path exists on disk.",
+            "Run scan_file_with_yara (webshells ruleset) on the suspect file.",
+            "Run parse_event_logs for IIS Worker Process spawning cmd.exe.",
+        ],
+    },
+
+    "parse_apache_logs": {
+        "caveats": [
+            "Apache combined log format may vary — custom formats reduce parser accuracy.",
+            "Reverse proxy deployments may mask real client IPs with proxy IP.",
+        ],
+        "advisories": [
+            "SQLi/traversal patterns in logs indicate ATTEMPT — confirm success via HTTP response code (200/302).",
+        ],
+        "corroboration": [
+            "Filter for 200/302 responses to suspicious URLs to confirm successful exploitation.",
+            "Run lookup_ip_reputation on attacker source IPs.",
+        ],
+    },
+
+    "extract_pcap_files": {
+        "caveats": [
+            "Requires NetworkMiner or tshark — check availability on SIFT.",
+            "TLS-encrypted traffic cannot be reassembled without session keys.",
+        ],
+        "advisories": [
+            "Extracted files from PCAP may be partial if the capture started mid-session.",
+        ],
+        "corroboration": [
+            "Run get_file_type + scan_file_with_yara on extracted files.",
+            "Calculate hashes and run lookup_hash_reputation.",
+        ],
+    },
+
+    "parse_firewall_logs": {
+        "caveats": [
+            "Firewall DENY logs prove attempted connections, not successful ones.",
+            "Source IP in firewall logs may be NAT/proxy — not necessarily attacker's real IP.",
+        ],
+        "advisories": [
+            "Internal-to-internal deny traffic may indicate compromised host attempting lateral movement.",
+        ],
+        "corroboration": [
+            "Cross-reference with parse_zeek_logs to confirm traffic volume.",
+            "Run lookup_ip_reputation on external source IPs.",
+        ],
+    },
+
+    "decode_rdp_bitmap_cache": {
+        "caveats": [
+            "RDP bitmap cache only captures screen tiles — not a continuous session recording.",
+            "Cache files require BMC-Tools or bmc_tools.py for reconstruction.",
+        ],
+        "advisories": [
+            "Reconstructed bitmap tiles provide visual evidence of RDP session but may be incomplete or jumbled.",
+        ],
+        "corroboration": [
+            "Cross-reference with parse_event_logs for RDP logon events (Event ID 4624 Type 10).",
+            "Check parse_shimcache/parse_prefetch for mstsc.exe execution times.",
+        ],
+    },
+
+    "parse_netflow": {
+        "caveats": [
+            "NetFlow only provides metadata (IP, port, bytes) — no packet content.",
+            "Sampling-based NetFlow (1:1000) may miss low-volume C2 beaconing.",
+        ],
+        "advisories": [
+            "Large bytes_sent to external IP is exfiltration EVIDENCE, not proof — corroborate with endpoint artifacts.",
+        ],
+        "corroboration": [
+            "Cross-reference top talkers with parse_zeek_logs for protocol detail.",
+            "Run lookup_ip_reputation on all external large-transfer destinations.",
+        ],
+    },
+
+    # ── Extended registry ──────────────────────────────────────────────────────
+
+    "parse_shellbags": {
+        "caveats": [
+            "Shellbags persist after the target folder is deleted — this is a key forensic artifact.",
+            "SbECmd.exe requires mono on Linux SIFT.",
+            "Shellbag entries for USB drives require correlation with DeviceClasses registry for USB serial number.",
+        ],
+        "advisories": [
+            "A shellbag entry for a network share proves browsing, not necessarily data access — corroborate with MRU.",
+        ],
+        "corroboration": [
+            "Cross-reference network path shellbags with parse_event_logs for SMB authentication (Event 4624 Type 3).",
+            "Run parse_lnk_files to confirm files accessed on the network share.",
+        ],
+    },
+
+    "parse_windows_timeline": {
+        "caveats": [
+            "Windows Timeline (ActivitiesCache.db) is only present on Windows 10 version 1709+.",
+            "Timeline sync to Microsoft cloud may have been disabled by group policy.",
+            "Focus time and clipboard sync require specific Timeline settings to be enabled.",
+        ],
+        "advisories": [
+            "Timeline activity is user-session based — background processes and services do NOT appear.",
+        ],
+        "corroboration": [
+            "Cross-reference file open events with parse_lnk_files for corroboration.",
+            "Compare app launch times with parse_prefetch for independent execution confirmation.",
+        ],
+    },
+
+    "parse_bam_dam": {
+        "caveats": [
+            "BAM/DAM is Windows 10 version 1709+ only — not present on older systems.",
+            "BAM entries persist after executable deletion — only creation date is missing.",
+            "Only user-mode executables are tracked — kernel drivers and services may not appear.",
+        ],
+        "advisories": [
+            "BAM provides LAST execution time only — total run count is not recorded.",
+        ],
+        "corroboration": [
+            "Cross-reference with parse_prefetch for corroboration (run count + last 8 run times).",
+            "Run parse_amcache for SHA1 hash of executed binaries for VT lookup.",
+        ],
+    },
+
+    "parse_typed_paths": {
+        "caveats": [
+            "TypedPaths only records MANUALLY typed paths — paths navigated by clicking are not recorded.",
+            "The MRU list has a maximum size — oldest entries are purged.",
+        ],
+        "advisories": [
+            "A network share in TypedPaths proves the user TYPED that path — not necessarily that they accessed data.",
+        ],
+        "corroboration": [
+            "Cross-reference with parse_shellbags for folder navigation evidence.",
+            "Run parse_event_logs for SMB logon events (4624 Type 3) at the same time.",
+        ],
+    },
+
+    "parse_run_mru": {
+        "caveats": [
+            "Run MRU has a fixed size — oldest entries are purged by FIFO.",
+            "Only Win+R dialog entries are recorded — cmd.exe opened from Start menu is not.",
+        ],
+        "advisories": [
+            "A malicious command in Run MRU proves ATTEMPT but not necessarily EXECUTION — check Prefetch.",
+        ],
+        "corroboration": [
+            "Run parse_prefetch for the executed binary.",
+            "Run parse_event_logs for Event 4688 (process creation) around the same time.",
+        ],
+    },
+
+    "parse_open_save_mru": {
+        "caveats": [
+            "OpenSavePidlMRU stores SHELLITEMIDs (binary path format) — requires SbECmd for full decode.",
+            "MRU is application-specific — separate entries exist per extension/application.",
+        ],
+        "advisories": [
+            "An MRU entry for a sensitive file proves ACCESS via a file dialog, not necessarily exfiltration.",
+        ],
+        "corroboration": [
+            "Cross-reference with parse_lnk_files for the same file path.",
+            "Run parse_jump_lists for application-specific recent file access.",
+        ],
+    },
+
+    "parse_wordwheelquery": {
+        "caveats": [
+            "WordWheelQuery only records searches via Explorer address bar and File Explorer search box.",
+            "Outlook/Edge/Office internal searches are NOT recorded here.",
+        ],
+        "advisories": [
+            "A search for 'passwords' or 'salary' proves INTENT but requires file access artifacts to confirm OUTCOME.",
+        ],
+        "corroboration": [
+            "Cross-reference search terms with parse_lnk_files and parse_open_save_mru for accessed files.",
+            "Run parse_event_logs for file access audit events (if Object Access auditing was enabled).",
+        ],
+    },
+
+    "parse_installed_software": {
+        "caveats": [
+            "SOFTWARE hive only records MSI-installed software — portable tools are NOT listed.",
+            "Uninstalled software may leave registry remnants with no Install Date.",
+            "Version number alone does NOT confirm a vulnerable version was exploited.",
+        ],
+        "advisories": [
+            "A remote access tool being installed is suspicious — but verify install date proximity to incident.",
+        ],
+        "corroboration": [
+            "Run parse_prefetch for the installer executable (setup.exe, msiexec.exe).",
+            "Run parse_event_logs for Event 11707 (software installed) or 11724 (software uninstalled).",
+        ],
+    },
+
+    "parse_sam_hive": {
+        "caveats": [
+            "SAM hive requires SYSTEM hive key for password hash extraction — this tool only reads account metadata.",
+            "Account RID < 1000 are built-in accounts (Administrator = 500, Guest = 501).",
+        ],
+        "advisories": [
+            "A new local account (RID >= 1000, recent creation) is suspicious — corroborate with event logs.",
+        ],
+        "corroboration": [
+            "Run parse_event_logs for Event 4720 (user account created) at the same timestamp.",
+            "Run get_hashdump (memory) for actual NTLM hash extraction.",
+        ],
+    },
+
+    "parse_logon_history": {
+        "caveats": [
+            "SECURITY hive requires SYSTEM key for full LSA secrets decryption — metadata only without it.",
+            "Cached credentials (DCC2) use a slow KDF — cracking is time-intensive.",
+            "Maximum of 10 cached domain credentials by default (configurable via GPO).",
+        ],
+        "advisories": [
+            "Presence of a domain account in cached credentials proves PRIOR LOGIN but not necessarily malicious access.",
+        ],
+        "corroboration": [
+            "Run parse_event_logs for Event 4624 Type 3 (network logon) for the same account.",
+            "Run get_lsadump (memory) for live LSA secret extraction.",
+        ],
+    },
+
+    # ── Extended disk forensics ────────────────────────────────────────────────
+
+    "get_fs_statistics": {
+        "caveats": [
+            "fsstat requires correct partition offset — wrong offset returns garbage or error.",
+            "Volume creation time may reflect imaging, not original OS installation.",
+        ],
+        "advisories": [
+            "Use get_partition_table first to obtain the correct sector offset before calling get_fs_statistics.",
+        ],
+        "corroboration": [
+            "Cross-reference last mount time with incident timeline.",
+        ],
+    },
+
+    "get_image_info": {
+        "caveats": [
+            "ewfinfo is only available for E01/EWF format images.",
+            "mmls may fail on non-standard partition table types (GPT on some ARM images).",
+        ],
+        "advisories": [
+            "If ewfinfo MD5 != computed hash from verify_image_integrity, the image may have been modified post-acquisition.",
+        ],
+        "corroboration": [
+            "Run verify_image_integrity to confirm hash matches acquisition report.",
+        ],
+    },
+
+    "create_mac_timeline": {
+        "caveats": [
+            "mactime requires a body file from fls -r -m — it does not parse images directly.",
+            "MAC(B) timestamps can all be identical if the OS created/copied the file at the same instant.",
+        ],
+        "advisories": [
+            "MAC timeline entries must be corroborated — a single timestamp event is not conclusive.",
+        ],
+        "corroboration": [
+            "Cross-reference key timeline events with parse_event_logs (process creation, logon).",
+            "Run filter_timeline on the super-timeline for the same time window.",
+        ],
+    },
+
+    "read_raw_block": {
+        "caveats": [
+            "Raw block reading requires correct offset and block size for the file system.",
+            "MBR/VBR analysis requires knowledge of boot record format.",
+        ],
+        "advisories": [
+            "MBR tampering (bootkits) requires corroboration with Secure Boot log and AV/EDR telemetry.",
+        ],
+        "corroboration": [
+            "Cross-reference with get_fs_statistics for block size and MFT location.",
+        ],
+    },
+
+    "analyze_slack_space": {
+        "caveats": [
+            "blkls -s may take significant time on large partitions.",
+            "String extraction is heuristic — binary data may produce false string hits.",
+        ],
+        "advisories": [
+            "IOCs found in slack space require file system corroboration — they may be from long-deleted files.",
+        ],
+        "corroboration": [
+            "Cross-reference IPs found in slack with lookup_ip_reputation.",
+            "Run filter_timeline around the deletion timestamp of the file that owned the cluster.",
+        ],
+    },
+
+    "verify_image_integrity": {
+        "caveats": [
+            "Hash computation on large images (>100GB) may take 10+ minutes.",
+            "ewfverify is only available for E01 format images.",
+        ],
+        "advisories": [
+            "A hash mismatch means the image CANNOT be trusted as forensically sound — report to case supervisor immediately.",
+            "Do NOT continue analysis with a tampered image without documenting the discrepancy.",
+        ],
+        "corroboration": [
+            "Document the expected hash from the acquisition report.",
+            "Compare with the hash recorded in get_image_info (ewf_metadata).",
+        ],
+    },
+
+    # ── Threat intelligence extended ──────────────────────────────────────────
+
+    "lookup_domain_reputation": {
+        "caveats": [
+            "WHOIS data may be privacy-masked — registrant country is the most reliable field.",
+            "Newly registered domains (< 30 days) are common phishing infrastructure.",
+            "VT_API_KEY must be set — without it only WHOIS data is returned.",
+        ],
+        "advisories": [
+            "A 0/90 VT detection does NOT mean the domain is clean — new infrastructure has no VT history.",
+        ],
+        "corroboration": [
+            "Run lookup_ip_reputation on all A record IPs for the domain.",
+            "Cross-reference with parse_zeek_logs or parse_iis_logs for access frequency.",
+        ],
+    },
+
+    "search_mitre_technique": {
+        "caveats": [
+            "RAG results depend on the quality of the seeded MITRE ATT&CK knowledge base.",
+            "Technique IDs evolve — verify against current attack.mitre.org.",
+        ],
+        "advisories": [
+            "MITRE technique documentation describes common adversary behavior — not every implementation.",
+        ],
+        "corroboration": [
+            "Cross-reference with tool-level mitre_techniques fields for independent mapping.",
+        ],
+    },
+
+    "search_ioc_database": {
+        "caveats": [
+            "RAG IOC database is only as current as the last run_all.py seeding.",
+            "Semantic search may surface related but not exact IOC matches.",
+        ],
+        "advisories": [
+            "A RAG match is a SIMILARITY hit, not a definitive IOC match — verify against source.",
+        ],
+        "corroboration": [
+            "Run lookup_hash_reputation or lookup_ip_reputation for definitive VT verdict.",
+        ],
+    },
+
+    # ── Misc tools that were missing ──────────────────────────────────────────
+
+    "extract_file": {
+        "caveats": [
+            "icat requires a valid inode number from get_file_listing — incorrect inodes produce garbage.",
+            "Deleted files may be partially overwritten — extracted content may be corrupt.",
+        ],
+        "advisories": [
+            "An extracted file must be verified with calculate_file_hashes before analysis.",
+        ],
+        "corroboration": [
+            "Calculate hash and run lookup_hash_reputation.",
+            "Run scan_file_with_yara on the extracted file.",
+        ],
+    },
+
+    "search_deleted_files": {
+        "caveats": [
+            "fls -d shows deleted directory entries — data blocks may be reallocated.",
+            "NTFS MFT records for deleted files are reused — names may persist after data is gone.",
+        ],
+        "advisories": [
+            "A deleted file entry does NOT guarantee the file is recoverable.",
+        ],
+        "corroboration": [
+            "Run carve_files_foremost to attempt file content recovery.",
+            "Run parse_mft for timestamp analysis of the deleted entry.",
+        ],
+    },
+
+    "get_browser_history": {
+        "caveats": [
+            "Plaso browser history extraction depends on artifact definitions — may not cover all browser types.",
+        ],
+        "advisories": [
+            "Browser history from Plaso should be cross-validated with parse_chrome_history/parse_firefox_history.",
+        ],
+        "corroboration": [
+            "Cross-reference URLs with lookup_domain_reputation.",
+        ],
+    },
+
+    "list_yara_rule_sets": {
+        "caveats": ["Lists available .yar files in yara_rules/ — add custom rules there."],
+        "advisories": [],
+        "corroboration": ["Run scan_memory_with_yara or scan_file_with_yara with a selected rule set."],
+    },
+
+    "finish_analysis": {
+        "caveats": [
+            "finish_analysis requires a non-empty audit_ids list — findings without audit trail are rejected.",
+            "The observation field must contain only tool-observed facts — no inference.",
+            "The interpretation field is where analytical conclusions belong.",
+        ],
+        "advisories": [
+            "Do NOT mix observations (what tools showed) with interpretations (what it means) in the same field.",
+            "confidence_score < 50 means additional corroboration is needed before reporting.",
+        ],
+        "corroboration": [
+            "Run adversarial_review before calling finish_analysis to challenge your hypothesis.",
+            "Run verify_findings to confirm every claim is grounded in raw tool output.",
+        ],
+    },
+
+    "get_handles": {
+        "caveats": [
+            "Volatility handles plugin enumerates all open handles — thousands per process is normal.",
+            "Handle names may be truncated in memory — full path may not be recoverable.",
+        ],
+        "advisories": [
+            "A process holding a handle to lsass.exe is strongly suspicious (T1003.001) but may be legitimate security software.",
+        ],
+        "corroboration": [
+            "Cross-reference with get_process_list to confirm the handle-holding process is suspicious.",
+            "Run parse_event_logs for Event 4656/4663 (object access) if auditing was enabled.",
+        ],
+    },
+
+    "get_ads_memory": {
+        "caveats": [
+            "Memory-based ADS detection depends on MFT records being paged into memory.",
+            "Results may be incomplete for files not recently accessed.",
+        ],
+        "advisories": [
+            "Corroborate with detect_ads_streams for on-disk ADS detection.",
+        ],
+        "corroboration": [
+            "Run detect_ads_streams for static disk-based ADS detection.",
+            "Extract suspicious ADS content with extract_file for analysis.",
+        ],
+    },
+
+    "get_atoms": {
+        "caveats": [
+            "Windows atom table is used by GUI frameworks — high atom count is normal.",
+            "Malicious atoms often contain encoded payloads or command strings.",
+        ],
+        "advisories": [
+            "Suspicious atom names require correlation with process context to confirm malicious intent.",
+        ],
+        "corroboration": [
+            "Cross-reference with get_process_list for processes that registered the atoms.",
+        ],
+    },
+
+    "get_sessions": {
+        "caveats": [
+            "Session 0 is the system session — all services run here.",
+            "Multiple sessions may indicate RDP or console switching, not necessarily compromise.",
+        ],
+        "advisories": [
+            "An unexpected session with unusual processes requires cross-referencing with event logs.",
+        ],
+        "corroboration": [
+            "Run parse_event_logs for RDP logon events (4624 Type 10) at session creation times.",
+        ],
+    },
+
+    "get_clipboard": {
+        "caveats": [
+            "Clipboard content is volatile — it reflects state at acquisition time only.",
+            "Clipboard is cleared on lock/logoff — incident-time content may be gone.",
+        ],
+        "advisories": [
+            "Clipboard passwords or tokens are high-value evidence but require timestamp context.",
+        ],
+        "corroboration": [
+            "Cross-reference clipboard content with parse_event_logs for authentication activity.",
+        ],
+    },
+
+    "get_cachedump": {
+        "caveats": [
+            "DCC2 hashes are slow to crack (PBKDF2 with 10,240 iterations).",
+            "Maximum 10 cached credentials by default.",
+        ],
+        "advisories": [
+            "Cached credential presence proves prior domain logon, not necessarily current active session.",
+        ],
+        "corroboration": [
+            "Run parse_event_logs for Event 4624 Type 3 for the same accounts.",
+        ],
+    },
+
+    "get_getsids": {
+        "caveats": [
+            "SID enumeration requires process token access — some processes may be inaccessible.",
+            "Well-known SIDs (S-1-5-18 = SYSTEM, S-1-5-19 = LOCAL SERVICE) are normal for system processes.",
+        ],
+        "advisories": [
+            "A user-mode process holding SYSTEM SID (S-1-5-18) is a privilege escalation indicator (T1134).",
+        ],
+        "corroboration": [
+            "Run get_privileges to see which specific privileges are enabled in the suspicious token.",
+            "Run get_process_list to confirm the process parent chain.",
+        ],
+    },
+
+    "get_mft_memory": {
+        "caveats": [
+            "In-memory MFT extraction depends on MFT records being paged into memory.",
+            "Results are typically a subset of the full on-disk MFT.",
+        ],
+        "advisories": [
+            "Use parse_mft (disk-based) for complete MFT analysis — get_mft_memory is supplementary.",
+        ],
+        "corroboration": [
+            "Cross-reference with parse_mft for complete file system timeline.",
+        ],
+    },
+
+    "dump_process": {
+        "caveats": [
+            "Process dumps may be incomplete — some sections are not memory-resident.",
+            "Dumped processes are written to EXPORTS_DIR — ensure sufficient disk space.",
+            "Anti-analysis malware may detect dump attempts and terminate.",
+        ],
+        "advisories": [
+            "A process dump is for static analysis only — do NOT execute the dump.",
+        ],
+        "corroboration": [
+            "Run get_pe_metadata + detect_capabilities_capa on the dumped process.",
+            "Run scan_file_with_yara on the dump.",
+            "Calculate hash and run lookup_hash_reputation.",
+        ],
+    },
+
+    "parse_registry_hive": {
+        "caveats": [
+            "RECmd.exe requires mono on Linux SIFT.",
+            "Registry key paths are case-insensitive on Windows but case-sensitive in this search.",
+        ],
+        "advisories": [
+            "Registry key presence does NOT confirm malicious activity — context and value data matter.",
+        ],
+        "corroboration": [
+            "Run parse_shimcache for execution evidence of the binary referenced in the registry key.",
+            "Run parse_event_logs for registry modification events (if Object Access auditing was enabled).",
+        ],
+    },
+
+    "parse_jump_lists": {
+        "caveats": [
+            "Jump list AppIDs are application-specific hashes — mapping to application requires AppID database.",
+            "Jump lists for removed applications persist until the MRU is purged.",
+        ],
+        "advisories": [
+            "A jump list entry for a sensitive file proves RECENT ACCESS but not necessarily exfiltration.",
+        ],
+        "corroboration": [
+            "Cross-reference with parse_lnk_files for the same file paths.",
+            "Run parse_open_save_mru to confirm the file was opened via a dialog.",
+        ],
+    },
+
+    "read_raw_block": {
+        "caveats": [
+            "Raw block reading requires correct offset and block size.",
+            "MBR/VBR analysis requires knowledge of boot record format.",
+        ],
+        "advisories": [
+            "MBR tampering (bootkits) requires corroboration with Secure Boot log.",
+        ],
+        "corroboration": [
+            "Cross-reference with get_fs_statistics for block size.",
+        ],
+    },
 }
 
 
