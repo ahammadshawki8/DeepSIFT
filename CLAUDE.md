@@ -63,14 +63,16 @@ on or after November 13, 2020. Use DeepSIFT tools only.
 ## Investigation Workflow (FOLLOW THIS ORDER)
 
 ### Memory Image Investigation
-1. `get_process_list(image_path)` — Always start here
-2. `find_injected_code(image_path)` — If suspicious processes found
-3. `get_network_connections(image_path)` — Identify C2 / exfiltration
-4. `get_command_history(image_path)` — Find attacker commands
-5. `get_loaded_dlls(image_path, pid)` — For specific suspicious PIDs
-6. `lookup_ip_reputation(ip)` — For each external IP found
-7. `get_registry_hives(image_path)` → `get_registry_key(...)` — Persistence
-8. `finish_analysis(...)` — Call when sufficient evidence gathered
+1. `get_process_list(image_path)` — Always start here; returns Hunt Evil baseline comparison + MITRE tags
+2. `scan_hidden_processes(image_path)` — DKOM rootkit detection (pslist vs psscan diff → T1014)
+3. `find_injected_code(image_path)` — Malfind with injection type + MITRE tags per finding
+4. `get_running_services(image_path)` — svcscan with suspicious path detection (T1543.003)
+5. `get_network_connections(image_path)` — Netscan with external IP flagging + MITRE tags
+6. `get_command_history(image_path)` — Cmdline with suspicious pattern detection + MITRE tags
+7. `get_loaded_dlls(image_path, pid)` — For specific suspicious PIDs
+8. `lookup_ip_reputation(ip)` — For each external IP found
+9. `get_registry_hives(image_path)` → `get_registry_key(...)` — Persistence
+10. `finish_analysis(...)` — Call when sufficient evidence gathered
 
 ### Disk Image Investigation
 1. `get_partition_table(image_path)` — Get partition offsets
@@ -183,22 +185,30 @@ When you identify suspicious activity, map it to ATT&CK techniques:
 - [x] netscan_parser with external IP flagging
 - [x] malfind_parser with injection type classification
 - [x] timeline_parser with suspicious keyword detection
+- [x] **mitre_auto_map.py** — rule-based MITRE ATT&CK auto-mapping per finding (no RAG required)
+  - [x] MITRE tags added to: get_process_list, find_injected_code, get_network_connections, get_command_history, parse_event_logs, parse_shimcache
+- [x] **scan_hidden_processes** — pslist vs psscan diff → DKOM rootkit detection (T1014)
+- [x] **get_running_services** — svcscan with suspicious binary path detection (T1543.003)
 - [x] RAG knowledge base (ChromaDB + sentence-transformers)
 - [x] MITRE ATT&CK ingestion pipeline
 - [x] Threat intel and case history ingestion
+- [x] **ROCBA case IOC ingest** (`rag/ingest/rocba_iocs.py`) — seeds RAG with case-specific hostile IPs, MRC.exe verdict, cloud exfil surface
+- [x] **rag/ingest/run_all.py** — one-command RAG seeding script
 - [x] Benchmark runner and scorer
-- [x] LangGraph multi-agent orchestrator (memory + disk + network agents)
-- [x] Parser unit tests (15/15 passing)
+- [x] **benchmark/reports/html_report.py** — rich visual HTML comparison (color-coded findings, MITRE badges, side-by-side diff)
+- [x] LangGraph multi-agent orchestrator — memory + disk + network agents
+  - [x] disk_agent fully implemented (event logs, prefetch, shimcache, LNK files via EZ Tools)
+- [x] **demo.py** — end-to-end demo script (seed RAG → run investigation → generate report)
+- [x] Parser unit tests (32/32 passing — 15 original + 17 new MITRE + svcscan tests)
+- [x] docs/architecture.md, docs/dataset.md, docs/devpost_submission.md
 
 ### In Progress / TODO
-- [ ] Run Protocol SIFT baseline on ROCBA image → document hallucinations
-- [ ] Test MCP server on SIFT VM with real Volatility output
-- [ ] Ingest MITRE ATT&CK into ChromaDB (`python3 rag/ingest/mitre_attack.py`)
-- [ ] Run DeepSIFT against ROCBA image
-- [ ] Generate benchmark comparison report
-- [ ] Create architecture diagram (docs/architecture.md)
+- [ ] Run DeepSIFT on SIFT VM against Rocba-Memory.raw → generate findings.json
+- [ ] Run benchmark: `python3 demo.py --image /cases/ROCBA/Rocba-Memory.raw --baseline /cases/ROCBA-BASELINE/analysis/findings.json`
+- [ ] Seed RAG on VM: `python3 rag/ingest/run_all.py`
+- [ ] Fill in TBD numbers in docs/devpost_submission.md
 - [ ] Record demo video
-- [ ] Write Devpost submission
+- [ ] Submit to Devpost (deadline: June 15, 2026)
 
 ---
 

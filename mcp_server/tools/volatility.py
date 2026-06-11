@@ -13,6 +13,9 @@ from mcp_server.audit import log_tool_execution
 from mcp_server.parsers.pslist_parser import parse_pslist, analyze_processes
 from mcp_server.parsers.netscan_parser import parse_netscan, get_external_ips
 from mcp_server.parsers.malfind_parser import parse_malfind
+from mcp_server.parsers.mitre_auto_map import (
+    map_process_anomalies, map_injection, map_network_connection, map_cmdline
+)
 
 
 def _run(cmd: list[str], tool_name: str) -> tuple[str, str]:
@@ -79,8 +82,9 @@ def register_volatility_tools(mcp, rag=None):
 
         suspicious = [p for p in processes if p["suspicious"]]
 
-        if rag and suspicious:
-            for proc in suspicious:
+        for proc in suspicious:
+            proc["mitre_techniques"] = map_process_anomalies(proc.get("anomalies", []))
+            if rag:
                 query = f"suspicious process {proc['name']} anomalies: {proc['anomalies']}"
                 proc["threat_intel"] = rag.query(query, n_results=2)
 
@@ -115,8 +119,11 @@ def register_volatility_tools(mcp, rag=None):
         findings = parse_malfind(stdout)
         high_risk = [f for f in findings if f.get("risk_level") == "high"]
 
-        if rag and high_risk:
-            for f in high_risk:
+        for f in findings:
+            f["mitre_techniques"] = map_injection(
+                f.get("injection_type", ""), f.get("protection", "")
+            )
+            if rag and f.get("risk_level") == "high":
                 query = f"memory injection {f['injection_type']} in process {f['process']}"
                 f["threat_intel"] = rag.query(query, n_results=2)
 
@@ -152,6 +159,9 @@ def register_volatility_tools(mcp, rag=None):
         connections = parse_netscan(stdout)
         suspicious = [c for c in connections if c.get("suspicious")]
         external_ips = get_external_ips(connections)
+
+        for c in suspicious:
+            c["mitre_techniques"] = map_network_connection(c.get("ioc_flags", []))
 
         return json.dumps({
             "total_connections": len(connections),
@@ -214,8 +224,9 @@ def register_volatility_tools(mcp, rag=None):
         cmdlines = _parse_cmdline(stdout)
         suspicious = [c for c in cmdlines if c.get("suspicious")]
 
-        if rag and suspicious:
-            for c in suspicious:
+        for c in suspicious:
+            c["mitre_techniques"] = map_cmdline(c.get("cmdline", ""))
+            if rag:
                 query = f"suspicious command line: {c['cmdline'][:200]}"
                 c["threat_intel"] = rag.query(query, n_results=2)
 
@@ -305,6 +316,100 @@ def register_volatility_tools(mcp, rag=None):
         }, default=str)
 
     @mcp.tool()
+    def scan_hidden_processes(image_path: str) -> str:
+        """
+        Detects DKOM-hidden processes by comparing pslist (linked-list walk) against
+        psscan (pool tag scan). Processes in psscan but absent from pslist are rootkit-hidden.
+
+        This is a key indicator of T1014 (Rootkit). Protocol SIFT requires manual
+        diff; DeepSIFT computes it automatically and returns structured findings.
+
+        Args:
+            image_path: Absolute path to the memory image file.
+        """
+        pslist_out, _ = _run(VOLATILITY_CMD + ["-f", image_path, "windows.pslist"], "scan_hidden_processes_pslist")
+        psscan_out, _ = _run(VOLATILITY_CMD + ["-f", image_path, "windows.psscan"], "scan_hidden_processes_psscan")
+
+        pslist_procs = parse_pslist(pslist_out)
+        psscan_procs = parse_pslist(psscan_out)  # same column format
+
+        pslist_pids = {p["pid"] for p in pslist_procs}
+        psscan_pids = {p["pid"] for p in psscan_procs}
+
+        hidden_pids = psscan_pids - pslist_pids  # in pool scan but not linked list → DKOM hidden
+        ghost_pids  = pslist_pids - psscan_pids  # in linked list but not pool → unusual
+
+        hidden = [p for p in psscan_procs if p["pid"] in hidden_pids]
+        ghost  = [p for p in pslist_procs  if p["pid"] in ghost_pids]
+
+        mitre = []
+        if hidden:
+            mitre = [{"technique_id": "T1014", "technique_name": "Rootkit",
+                      "url": "https://attack.mitre.org/techniques/T1014"}]
+            if rag:
+                context = rag.query("DKOM hidden process rootkit technique T1014")
+                for h in hidden:
+                    h["threat_intel"] = context
+
+        return json.dumps({
+            "pslist_process_count": len(pslist_procs),
+            "psscan_process_count": len(psscan_procs),
+            "hidden_process_count": len(hidden),
+            "ghost_process_count": len(ghost),
+            "hidden_processes": hidden,
+            "ghost_processes": ghost,
+            "mitre_techniques": mitre,
+            "verdict": (
+                "ROOTKIT ACTIVITY DETECTED — processes hidden from pslist walk"
+                if hidden else
+                "No DKOM-hidden processes detected. Discrepancies are recently exited processes."
+            ),
+        }, default=str)
+
+    @mcp.tool()
+    def get_running_services(image_path: str) -> str:
+        """
+        Lists all Windows services from memory using Volatility svcscan.
+
+        Returns service names, states, binary paths, and PIDs. Flags services
+        with binary paths in user-writable directories (AppData, Temp, ProgramData)
+        as potentially malicious. Maps to T1543.003 (Windows Service persistence).
+
+        Args:
+            image_path: Absolute path to the memory image file.
+        """
+        cmd = VOLATILITY_CMD + ["-f", image_path, "windows.svcscan"]
+        stdout, stderr = _run(cmd, "get_running_services")
+
+        if stderr and not stdout:
+            return json.dumps({"error": stderr})
+
+        services = _parse_svcscan(stdout)
+        suspicious = [s for s in services if s.get("suspicious")]
+
+        for s in suspicious:
+            s["mitre_techniques"] = [
+                {"technique_id": "T1543.003",
+                 "technique_name": "Create or Modify System Process: Windows Service",
+                 "url": "https://attack.mitre.org/techniques/T1543/003"}
+            ]
+            if rag:
+                query = f"malicious service binary path {s.get('binary_path', '')}"
+                s["threat_intel"] = rag.query(query, n_results=2)
+
+        return json.dumps({
+            "total_services": len(services),
+            "suspicious_count": len(suspicious),
+            "running_count": sum(1 for s in services if s.get("state") == "SERVICE_RUNNING"),
+            "suspicious_services": suspicious,
+            "all_services": services[:200],
+            "investigation_note": (
+                "Suspicious services have binary paths in user-writable directories. "
+                "Cross-reference PIDs with get_process_list and get_loaded_dlls."
+            ),
+        }, default=str)
+
+    @mcp.tool()
     def finish_analysis(
         summary: str,
         suspicious_processes: list,
@@ -347,6 +452,69 @@ def register_volatility_tools(mcp, rag=None):
 
 
 # ── Internal parsers for tools not in their own parser module ──────────────
+
+_SUSPICIOUS_SVC_PATHS = [
+    "\\appdata\\", "\\temp\\", "\\tmp\\", "\\users\\public\\",
+    "\\programdata\\", "\\recycle", "\\windows\\temp\\",
+    "\\downloads\\", "\\desktop\\",
+]
+
+
+def _parse_svcscan(raw: str) -> list[dict]:
+    """
+    Parse Volatility 3 windows.svcscan output.
+
+    Columns: Offset  Order  PID  Start  State  Type  Name  DisplayName  BinaryPath
+    """
+    services = []
+    header_found = False
+
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("Volatility") or line.startswith("Progress"):
+            continue
+        if "Name" in line and "State" in line and ("BinaryPath" in line or "Binary" in line):
+            header_found = True
+            continue
+        if not header_found:
+            continue
+
+        parts = line.split()
+        if len(parts) < 6:
+            continue
+
+        # Reconstruct binary path from trailing parts
+        # Format varies; look for parts that look like a path
+        binary_path = ""
+        name = ""
+        state = ""
+        pid = 0
+
+        try:
+            # Try parsing: Offset Order PID Start State Type Name DisplayName BinaryPath
+            pid = int(parts[2]) if parts[2].isdigit() else 0
+            state = parts[4] if len(parts) > 4 else ""
+            name = parts[6] if len(parts) > 6 else ""
+            # BinaryPath is last column, may contain spaces
+            if len(parts) > 8:
+                binary_path = " ".join(parts[8:])
+        except (IndexError, ValueError):
+            pass
+
+        suspicious = bool(binary_path) and any(
+            s in binary_path.lower() for s in _SUSPICIOUS_SVC_PATHS
+        )
+
+        services.append({
+            "name": name,
+            "state": state,
+            "pid": pid,
+            "binary_path": binary_path,
+            "suspicious": suspicious,
+        })
+
+    return services
+
 
 _SUSPICIOUS_DLL_PATHS = [
     "\\appdata\\", "\\temp\\", "\\tmp\\", "\\users\\public\\",

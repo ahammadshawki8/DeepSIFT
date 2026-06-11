@@ -39,15 +39,17 @@ SIFT Tools (volatility, log2timeline, sleuthkit, yara, ez tools)
 ### Memory Forensics (Volatility 3)
 | Tool | Description |
 |------|-------------|
-| `get_process_list` | Process list with Hunt Evil baseline comparison |
-| `find_injected_code` | Malfind with injection type classification |
-| `get_network_connections` | Netscan with external IP flagging |
-| `get_command_history` | Cmdline with suspicious pattern detection |
+| `get_process_list` | Process list with Hunt Evil baseline (31 procs), masquerade detection, MITRE tags |
+| `scan_hidden_processes` | **DKOM rootkit detection** — pslist vs psscan diff → T1014 |
+| `find_injected_code` | Malfind with injection type classification (shellcode/PE/hollowing) + MITRE tags |
+| `get_running_services` | svcscan with suspicious binary path detection → T1543.003 |
+| `get_network_connections` | Netscan with external IP flagging + MITRE tags per connection |
+| `get_command_history` | Cmdline with suspicious pattern detection + MITRE tags |
 | `get_loaded_dlls` | DLL list with path-based suspicion scoring |
 | `get_registry_hives` | Registry hive list from memory |
 | `get_registry_key` | Read specific registry key values |
 | `get_handles` | Open handles (files, mutexes, pipes) |
-| `finish_analysis` | Save final structured findings |
+| `finish_analysis` | Save final structured findings with MITRE technique summary |
 
 ### Timeline (log2timeline / Plaso)
 | Tool | Description |
@@ -124,7 +126,24 @@ pytest tests/ -v
 
 ## Quick Start — Investigate a Memory Image
 
-### Option A: Use with Claude Code (Recommended)
+### Option A: One-Command Demo Script
+
+```bash
+# Memory-only investigation (3 steps: seed RAG → run → generate report)
+python3 demo.py --image /cases/ROCBA/Rocba-Memory.raw
+
+# Full investigation with disk artifact analysis
+python3 demo.py \
+  --image /cases/ROCBA/Rocba-Memory.raw \
+  --evidence-mount /mnt/evidence
+
+# With Protocol SIFT baseline comparison (generates HTML accuracy report)
+python3 demo.py \
+  --image /cases/ROCBA/Rocba-Memory.raw \
+  --baseline /cases/ROCBA-BASELINE/analysis/findings.json
+```
+
+### Option C: Use with Claude Code (Claude Code MCP)
 
 1. Add to your Claude Code MCP configuration:
 
@@ -148,7 +167,7 @@ on or after November 13, 2020.
 Claude will automatically call `get_process_list` → `find_injected_code` → 
 `get_network_connections` → `finish_analysis` and produce a structured report.
 
-### Option B: Multi-Agent Orchestrator (LangGraph)
+### Option D: Multi-Agent Orchestrator (LangGraph)
 
 ```bash
 python3 agents/orchestrator.py --image /cases/ROCBA/Rocba-Memory.raw --case-dir /cases/ROCBA

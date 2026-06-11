@@ -6,6 +6,7 @@ from pathlib import Path
 
 from mcp_server.config import EZ_TOOLS_DIR, EXPORTS_DIR, MAX_TOOL_TIMEOUT
 from mcp_server.audit import log_tool_execution
+from mcp_server.parsers.mitre_auto_map import map_event_id, map_finding_to_techniques
 
 
 _SUSPICIOUS_DIRS = (
@@ -294,13 +295,27 @@ def register_windows_artifact_tools(mcp, rag=None):
         events.sort(key=lambda x: x.get("timestamp", ""))
         summary = _categorize_events(events)
 
+        # Add MITRE mapping per event category
+        mitre_by_category: dict[str, list] = {}
+        for eid_str in filter_ids.split(","):
+            eid = eid_str.strip()
+            if eid:
+                mapped = map_event_id(eid)
+                for m in mapped:
+                    tid = m["technique_id"]
+                    mitre_by_category.setdefault(tid, m)
+
         rag_context = ""
-        if rag and summary.get("service_installs"):
-            rag_context = rag.query("malicious service installation persistence T1543")
+        if rag:
+            if summary.get("service_installs"):
+                rag_context += rag.query("malicious service installation persistence T1543")
+            if summary.get("failed_logons"):
+                rag_context += rag.query("brute force failed logon T1110")
 
         return json.dumps({
             "total_events": len(events),
             "summary": summary,
+            "mitre_techniques": list(mitre_by_category.values()),
             "rag_context": rag_context,
             "events": events[:500],
         }, default=str)
@@ -340,6 +355,10 @@ def register_windows_artifact_tools(mcp, rag=None):
                 continue
 
         suspicious = [e for e in entries if _is_suspicious_path(e.get("path", ""))]
+        for e in suspicious:
+            e["mitre_techniques"] = map_finding_to_techniques(
+                f"executable in temp appdata suspicious path {e.get('path', '')}"
+            )
         return json.dumps({
             "total_shimcache_entries": len(entries),
             "suspicious_entries": suspicious[:50],

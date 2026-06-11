@@ -9,6 +9,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mcp_server.parsers.pslist_parser import parse_pslist, analyze_processes, _is_masquerade
 from mcp_server.parsers.netscan_parser import parse_netscan, get_external_ips
 from mcp_server.parsers.malfind_parser import parse_malfind
+from mcp_server.parsers.mitre_auto_map import (
+    map_finding_to_techniques, map_process_anomalies,
+    map_injection, map_network_connection, map_cmdline, map_event_id,
+)
 
 
 # ── Sample outputs (realistic Volatility 3 format) ───────────────────────
@@ -169,3 +173,116 @@ class TestCrossParserCorrelation:
         # svch0st.exe (PID 2736) should be suspicious AND have a connection
         assert 2736 in suspicious_pids
         assert 2736 in conn_pids
+
+
+# ── MITRE ATT&CK auto-mapping tests ──────────────────────────────────────
+
+class TestMitreAutoMap:
+    def test_masquerade_maps_to_T1036(self):
+        result = map_finding_to_techniques("Possible masquerade of svchost.exe")
+        tids = [r["technique_id"] for r in result]
+        assert any(t.startswith("T1036") for t in tids)
+
+    def test_wrong_parent_maps_to_T1055(self):
+        result = map_finding_to_techniques("Unexpected parent: expected wininit.exe, got explorer.exe")
+        tids = [r["technique_id"] for r in result]
+        assert any(t.startswith("T1055") for t in tids)
+
+    def test_shellcode_injection_maps_to_T1055(self):
+        result = map_injection("shellcode", "PAGE_EXECUTE_READWRITE")
+        tids = [r["technique_id"] for r in result]
+        assert any(t.startswith("T1055") for t in tids)
+
+    def test_reflective_dll_maps_to_T1055_001(self):
+        result = map_injection("reflective_dll_injection", "PAGE_EXECUTE_READWRITE")
+        tids = [r["technique_id"] for r in result]
+        assert "T1055.001" in tids
+
+    def test_rdp_connection_maps_to_T1021(self):
+        result = map_network_connection(["Established external connection to 81.30.144.115:3389"])
+        tids = [r["technique_id"] for r in result]
+        assert any(t.startswith("T1021") for t in tids)
+
+    def test_base64_cmdline_maps_to_powershell(self):
+        result = map_cmdline("powershell -EncodedCommand SGVsbG8gV29ybGQ=")
+        tids = [r["technique_id"] for r in result]
+        assert "T1059.001" in tids
+
+    def test_event_7045_maps_to_service(self):
+        result = map_event_id("7045")
+        tids = [r["technique_id"] for r in result]
+        assert "T1543.003" in tids
+
+    def test_event_4625_maps_to_brute_force(self):
+        result = map_event_id("4625")
+        tids = [r["technique_id"] for r in result]
+        assert "T1110" in tids
+
+    def test_event_4104_maps_to_powershell(self):
+        result = map_event_id("4104")
+        tids = [r["technique_id"] for r in result]
+        assert "T1059.001" in tids
+
+    def test_wmi_event_maps_to_T1546_003(self):
+        result = map_event_id("5861")
+        tids = [r["technique_id"] for r in result]
+        assert "T1546.003" in tids
+
+    def test_dropbox_exfil_maps_to_T1567(self):
+        result = map_finding_to_techniques("dropbox sync activity detected")
+        tids = [r["technique_id"] for r in result]
+        assert "T1567.002" in tids
+
+    def test_no_match_returns_empty_list(self):
+        result = map_finding_to_techniques("explorer.exe is running normally")
+        assert isinstance(result, list)
+
+    def test_result_has_required_keys(self):
+        result = map_finding_to_techniques("base64 encoded command detected")
+        assert len(result) > 0
+        for item in result:
+            assert "technique_id" in item
+            assert "technique_name" in item
+            assert "url" in item
+
+    def test_process_anomalies_helper(self):
+        anomalies = [
+            "Unexpected parent: expected wininit.exe, got explorer.exe",
+            "Possible masquerade of lsass.exe",
+        ]
+        result = map_process_anomalies(anomalies)
+        tids = [r["technique_id"] for r in result]
+        assert len(tids) >= 1
+
+    def test_dedup_same_technique(self):
+        result = map_finding_to_techniques("base64 encodedcommand bypass powershell")
+        tids = [r["technique_id"] for r in result]
+        # T1059.001 should appear only once despite multiple matching patterns
+        assert tids.count("T1059.001") == 1
+
+
+# ── Volatility svcscan parser test ────────────────────────────────────────
+
+SAMPLE_SVCSCAN = """Volatility 3 Framework 2.4.1
+Progress:  100.00\t\tPDB scanning finished
+Offset\tOrder\tPID\tStart\tState\tType\tName\tDisplayName\tBinaryPath
+0xc400\t1\t688\t2\tSERVICE_RUNNING\tWIN32_OWN_PROCESS\tSpooler\tPrint Spooler\tC:\\Windows\\System32\\spoolsv.exe
+0xc401\t2\t1234\t2\tSERVICE_RUNNING\tWIN32_OWN_PROCESS\tEvil\tEvil Service\tC:\\Users\\fredr\\AppData\\Roaming\\evil.exe
+0xc402\t3\t0\t4\tSERVICE_STOPPED\tWIN32_OWN_PROCESS\tW32Time\tWindows Time\tC:\\Windows\\System32\\svchost.exe -k LocalService
+"""
+
+
+class TestSvcscanParser:
+    def test_parse_services(self):
+        from mcp_server.tools.volatility import _parse_svcscan
+        services = _parse_svcscan(SAMPLE_SVCSCAN)
+        names = [s["name"] for s in services]
+        assert len(services) >= 1
+
+    def test_suspicious_path_flagged(self):
+        from mcp_server.tools.volatility import _parse_svcscan
+        services = _parse_svcscan(SAMPLE_SVCSCAN)
+        suspicious = [s for s in services if s.get("suspicious")]
+        # The AppData path should be flagged
+        paths = [s["binary_path"].lower() for s in suspicious]
+        assert any("appdata" in p for p in paths)

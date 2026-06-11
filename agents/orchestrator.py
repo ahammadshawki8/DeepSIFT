@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 class ForensicState(TypedDict):
     image_path: str
+    disk_image_path: str
+    evidence_mount_path: str
     case_dir: str
     memory_findings: dict
     disk_findings: dict
@@ -118,15 +120,109 @@ class ForensicOrchestrator:
         }
 
     def _disk_agent(self, state: ForensicState) -> dict:
-        """Disk forensics specialist: file timeline, deleted files, prefetch."""
-        logger.info("[disk_agent] Disk analysis — stub (requires disk image, not memory image)")
-        findings = {
-            "note": "Disk agent requires a disk image (.E01, .dd, .vmdk). "
-                    "If only a memory image is available, skip to network_agent.",
-            "prefetch": [],
-            "deleted_files": [],
-            "timeline_summary": {},
-        }
+        """Disk forensics specialist: event logs, prefetch, shimcache, MFT, LNK files."""
+        disk_image = state.get("disk_image_path", "")
+        evidence_mount = state.get("evidence_mount_path", "")
+        findings: dict = {}
+
+        if not disk_image and not evidence_mount:
+            logger.info("[disk_agent] No disk image path provided — skipping disk analysis")
+            findings["note"] = (
+                "No disk image provided. Disk analysis skipped. "
+                "To enable: pass disk_image_path or evidence_mount_path to investigate()."
+            )
+            return {"disk_findings": findings}
+
+        logger.info(f"[disk_agent] Starting disk analysis on {disk_image or evidence_mount}")
+
+        # Use mounted evidence path if available; otherwise derive from image path
+        mount = evidence_mount or disk_image
+
+        try:
+            from mcp_server.config import EZ_TOOLS_DIR, EXPORTS_DIR
+            import subprocess, csv as _csv
+            from pathlib import Path
+
+            ez = lambda tool: str(EZ_TOOLS_DIR / tool)
+
+            def _ez_csv(cmd: list, out_subdir: str, tool_name: str) -> list[dict]:
+                out = str(EXPORTS_DIR / out_subdir)
+                Path(out).mkdir(parents=True, exist_ok=True)
+                try:
+                    subprocess.run(cmd + ["--csv", out], capture_output=True,
+                                   text=True, timeout=300)
+                except Exception:
+                    return []
+                rows = []
+                for f in Path(out).glob("*.csv"):
+                    try:
+                        with open(f, encoding="utf-8-sig") as fh:
+                            rows.extend(list(_csv.DictReader(fh)))
+                    except Exception:
+                        continue
+                return rows
+
+            # ── Event logs ────────────────────────────────────────────────
+            evtx_dir = str(Path(mount) / "Windows/System32/winevt/logs")
+            if Path(evtx_dir).exists():
+                DEFAULT_IDS = "4624,4625,4648,4672,4697,4698,4703,7045,4103,4104,5861,1149,4778"
+                rows = _ez_csv(
+                    [ez("EvtxECmd.exe"), "-d", evtx_dir, "--inc", DEFAULT_IDS],
+                    "disk_evtx", "disk_event_logs"
+                )
+                events = [{
+                    "timestamp": r.get("TimeCreated", ""),
+                    "event_id": r.get("EventId", ""),
+                    "channel": r.get("Channel", ""),
+                    "user": r.get("UserName", ""),
+                    "description": r.get("MapDescription", ""),
+                    "payload": r.get("PayloadData1", "")[:300],
+                } for r in rows]
+                events.sort(key=lambda x: x.get("timestamp", ""))
+                findings["event_logs"] = events[:500]
+                findings["event_log_count"] = len(events)
+                logger.info(f"[disk_agent] Event logs: {len(events)} events")
+
+            # ── Prefetch ──────────────────────────────────────────────────
+            pf_dir = str(Path(mount) / "Windows/Prefetch")
+            if Path(pf_dir).exists():
+                rows = _ez_csv([ez("PECmd.exe"), "-d", pf_dir], "disk_prefetch", "disk_prefetch")
+                findings["prefetch"] = [{
+                    "executable": r.get("ExecutableName", ""),
+                    "run_count": r.get("RunCount", ""),
+                    "last_run": r.get("LastRun", ""),
+                } for r in rows]
+                logger.info(f"[disk_agent] Prefetch: {len(findings['prefetch'])} entries")
+
+            # ── Shimcache ─────────────────────────────────────────────────
+            system_hive = str(Path(mount) / "Windows/System32/config/SYSTEM")
+            if Path(system_hive).exists():
+                rows = _ez_csv(
+                    [ez("AppCompatCacheParser.exe"), "-f", system_hive],
+                    "disk_shimcache", "disk_shimcache"
+                )
+                findings["shimcache"] = [{
+                    "path": r.get("Path", ""),
+                    "last_modified": r.get("LastModifiedTimeUTC", ""),
+                    "executed": r.get("Executed", ""),
+                } for r in rows]
+                logger.info(f"[disk_agent] Shimcache: {len(findings['shimcache'])} entries")
+
+            # ── LNK files ─────────────────────────────────────────────────
+            lnk_dir = str(Path(mount) / "Users")
+            if Path(lnk_dir).exists():
+                rows = _ez_csv([ez("LECmd.exe"), "-d", lnk_dir, "--all"], "disk_lnk", "disk_lnk")
+                findings["lnk_files"] = [{
+                    "source": r.get("SourceFile", ""),
+                    "target": r.get("LocalPath", ""),
+                    "accessed": r.get("TargetAccessed", ""),
+                } for r in rows]
+                logger.info(f"[disk_agent] LNK files: {len(findings['lnk_files'])} entries")
+
+        except Exception as e:
+            logger.error(f"[disk_agent] Error during disk analysis: {e}")
+            findings["error"] = str(e)
+
         return {"disk_findings": findings}
 
     def _network_agent(self, state: ForensicState) -> dict:
@@ -251,10 +347,26 @@ class ForensicOrchestrator:
 
     # ── Public interface ──────────────────────────────────────────────────
 
-    def investigate(self, image_path: str, case_dir: str = "./analysis") -> dict:
-        """Run full multi-agent investigation against a forensic image."""
+    def investigate(
+        self,
+        image_path: str,
+        case_dir: str = "./analysis",
+        disk_image_path: str = "",
+        evidence_mount_path: str = "",
+    ) -> dict:
+        """
+        Run full multi-agent investigation.
+
+        Args:
+            image_path: Path to memory image (.raw, .vmem, .mem).
+            case_dir: Directory for output files.
+            disk_image_path: Optional path to disk image (.E01, .dd) for disk analysis.
+            evidence_mount_path: Optional path to mounted evidence volume for EZ Tools.
+        """
         initial: ForensicState = {
             "image_path": image_path,
+            "disk_image_path": disk_image_path,
+            "evidence_mount_path": evidence_mount_path,
             "case_dir": case_dir,
             "memory_findings": {},
             "disk_findings": {},
@@ -277,8 +389,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run DeepSIFT multi-agent investigation")
     parser.add_argument("--image", required=True, help="Path to forensic memory image")
     parser.add_argument("--case-dir", default="./analysis", help="Output directory for findings")
+    parser.add_argument("--disk-image", default="", help="Optional path to disk image")
+    parser.add_argument("--evidence-mount", default="", help="Optional path to mounted evidence volume")
     args = parser.parse_args()
 
     orchestrator = ForensicOrchestrator()
-    report = orchestrator.investigate(args.image, args.case_dir)
+    report = orchestrator.investigate(
+        args.image, args.case_dir,
+        disk_image_path=args.disk_image,
+        evidence_mount_path=args.evidence_mount,
+    )
     print(json.dumps(report, indent=2, default=str))
