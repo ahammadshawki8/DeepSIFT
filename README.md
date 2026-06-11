@@ -74,11 +74,16 @@ SIFT Tools (volatility, log2timeline, sleuthkit, yara, ez tools)
 ### Windows Artifacts (EZ Tools)
 | Tool | Description |
 |------|-------------|
-| `parse_prefetch` | Program execution history |
-| `parse_lnk_files` | Recent file access |
-| `parse_jump_lists` | Application recent items |
-| `parse_registry_hive` | Offline hive parsing |
-| `lookup_ip_reputation` | AbuseIPDB + VirusTotal |
+| `parse_event_logs` | EVTX parsing — logon (4624/4625/4672), service (7045), tasks (4698), PowerShell (4104), WMI (5861), RDP (4778) |
+| `parse_shimcache` | AppCompatCache — executable existence proof from SYSTEM hive |
+| `parse_amcache` | Amcache.hve — SHA1 hash + first-run time per executable |
+| `parse_mft` | $MFT — full file system with timestamp anomaly detection |
+| `parse_prefetch` | Prefetch — program execution history (last 8 run times) |
+| `parse_lnk_files` | LNK shortcut files — recently accessed file paths |
+| `parse_jump_lists` | Jump Lists — application-specific recent file activity |
+| `parse_recycle_bin` | $Recycle.Bin — deleted file recovery with deletion timestamps |
+| `parse_registry_hive` | Offline registry hive parsing with keyword search |
+| `lookup_ip_reputation` | AbuseIPDB + VirusTotal threat intelligence |
 
 ---
 

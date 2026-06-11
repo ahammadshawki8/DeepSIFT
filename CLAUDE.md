@@ -78,6 +78,17 @@ on or after November 13, 2020. Use DeepSIFT tools only.
 3. `search_deleted_files(image_path, offset)` — Anti-forensics check
 4. `create_super_timeline(image_path, name)` → `filter_timeline(...)` — Timeline
 
+### Windows Artifact Investigation (EZ Tools — evidence mount required)
+1. `parse_event_logs(evtx_dir)` — Security/System event logs (logon, services, tasks, PS)
+2. `parse_shimcache(system_hive)` — Executable existence history from SYSTEM hive
+3. `parse_amcache(amcache_path)` — Executable run history with SHA1 hashes
+4. `parse_prefetch(prefetch_dir)` — Execution history with last 8 run times
+5. `parse_mft(mft_path)` — File system timeline; detects timestamp anomalies
+6. `parse_lnk_files(lnk_dir)` — Recently accessed files via LNK shortcuts
+7. `parse_jump_lists(jumplist_dir)` — Application-specific recent file access
+8. `parse_recycle_bin(recycle_bin_path)` — Deleted file recovery metadata
+9. `parse_registry_hive(hive_path, pattern)` — Raw registry key/value search
+
 ### YARA Hunting
 1. `list_yara_rule_sets()` — See available rules
 2. `scan_memory_with_yara(image_path, rule_set)` — Scan memory
@@ -139,6 +150,14 @@ When you identify suspicious activity, map it to ATT&CK techniques:
 | C2 network connection | T1071 — Application Layer Protocol |
 | Credential dumping (lsass access) | T1003.001 — LSASS Memory |
 | Timestomping / deleted files | T1070 — Indicator Removal |
+| Service install (event 7045/4697) | T1543.003 — Windows Service |
+| Scheduled task (event 4698/106) | T1053.005 — Scheduled Task |
+| WMI persistence (event 5860/5861) | T1546.003 — WMI Event Subscription |
+| Lateral movement via net/psexec | T1021.002 — SMB/Windows Admin Shares |
+| Executable in temp dir (shimcache) | T1036.005 — Match Legitimate Name |
+| PowerShell script block (event 4104) | T1059.001 — PowerShell |
+| USB device artifact | T1052.001 — Exfiltration over USB |
+| Cloud storage activity (browser/LNK) | T1567.002 — Exfiltration to Cloud Storage |
 
 ---
 
@@ -146,12 +165,21 @@ When you identify suspicious activity, map it to ATT&CK techniques:
 
 ### Completed
 - [x] MCP server core (mcp_server/server.py)
-- [x] Volatility 3 tool wrappers (8 tools)
+- [x] Volatility 3 tool wrappers (9 tools)
 - [x] log2timeline/psort wrappers (3 tools)
 - [x] Sleuth Kit wrappers (4 tools)
 - [x] YARA hunting wrappers (3 tools)
-- [x] Windows artifact tools — EZ Tools, IP reputation (5 tools)
-- [x] pslist_parser with SANS Hunt Evil baseline + masquerade detection
+- [x] Windows artifact tools — EZ Tools, IP reputation (10 tools)
+  - [x] parse_prefetch, parse_lnk_files, parse_jump_lists, parse_registry_hive, lookup_ip_reputation
+  - [x] parse_event_logs (EvtxECmd — logon/service/task/PS/WMI/RDP events)
+  - [x] parse_shimcache (AppCompatCacheParser — execution evidence)
+  - [x] parse_amcache (AmcacheParser — SHA1 hash per executable)
+  - [x] parse_mft (MFTECmd — full file system with timestamp anomaly detection)
+  - [x] parse_recycle_bin (RBCmd — deleted file recovery)
+- [x] pslist_parser — SANS Hunt Evil baseline (31 processes), masquerade detection
+  - [x] Added: lsaiso.exe, fontdrvhost.exe, dwm.exe, sihost.exe, ctfmon.exe,
+         WmiPrvSE.exe, audiodg.exe, SecurityHealthService.exe, MsMpEng.exe,
+         ShellExperienceHost.exe, SearchUI.exe, userinit.exe, NisSrv.exe
 - [x] netscan_parser with external IP flagging
 - [x] malfind_parser with injection type classification
 - [x] timeline_parser with suspicious keyword detection
@@ -160,7 +188,7 @@ When you identify suspicious activity, map it to ATT&CK techniques:
 - [x] Threat intel and case history ingestion
 - [x] Benchmark runner and scorer
 - [x] LangGraph multi-agent orchestrator (memory + disk + network agents)
-- [x] Parser unit tests
+- [x] Parser unit tests (15/15 passing)
 
 ### In Progress / TODO
 - [ ] Run Protocol SIFT baseline on ROCBA image → document hallucinations

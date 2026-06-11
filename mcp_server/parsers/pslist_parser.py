@@ -114,12 +114,92 @@ KNOWN_NORMAL: dict[str, dict] = {
         "expected_user": None,
         "notes": "Windows Installer",
     },
+    # --- Additional processes from SANS Hunt Evil FOR508 poster (Windows 10) ---
+    "lsaiso.exe": {
+        "expected_parent": "wininit.exe",
+        "max_instances": 1,
+        "expected_user": "SYSTEM",
+        "notes": "Credential Guard isolated process; ONLY present when Credential Guard is enabled",
+    },
+    "fontdrvhost.exe": {
+        "expected_parent": None,  # winlogon.exe or dwm.exe depending on session
+        "max_instances": 3,
+        "expected_user": None,
+        "notes": "Font driver host; legitimate child of winlogon.exe or dwm.exe",
+    },
+    "dwm.exe": {
+        "expected_parent": "winlogon.exe",
+        "max_instances": 5,
+        "expected_user": None,
+        "notes": "Desktop Window Manager; one per interactive session",
+    },
+    "sihost.exe": {
+        "expected_parent": "svchost.exe",
+        "max_instances": 5,
+        "expected_user": None,
+        "notes": "Shell Infrastructure Host (Start menu, notification area)",
+    },
+    "ctfmon.exe": {
+        "expected_parent": "svchost.exe",
+        "max_instances": 5,
+        "expected_user": None,
+        "notes": "CTF Loader; handles text input and handwriting recognition",
+    },
+    "WmiPrvSE.exe": {
+        "expected_parent": "svchost.exe",
+        "max_instances": 99,
+        "expected_user": None,
+        "notes": "WMI Provider Service; unexpected parent may indicate lateral movement (T1047)",
+    },
+    "audiodg.exe": {
+        "expected_parent": "svchost.exe",
+        "max_instances": 3,
+        "expected_user": None,
+        "notes": "Windows Audio Device Graph Isolation",
+    },
+    "SecurityHealthService.exe": {
+        "expected_parent": "services.exe",
+        "max_instances": 1,
+        "expected_user": "SYSTEM",
+        "notes": "Windows Security Health Service (Defender health monitoring)",
+    },
+    "MsMpEng.exe": {
+        "expected_parent": "services.exe",
+        "max_instances": 1,
+        "expected_user": "SYSTEM",
+        "notes": "Microsoft Malware Protection Engine (Windows Defender AV)",
+    },
+    "ShellExperienceHost.exe": {
+        "expected_parent": "svchost.exe",
+        "max_instances": 3,
+        "expected_user": None,
+        "notes": "Shell Experience Host (modern Start menu, Action Center)",
+    },
+    "SearchUI.exe": {
+        "expected_parent": "svchost.exe",
+        "max_instances": 3,
+        "expected_user": None,
+        "notes": "Search UI / Cortana search interface",
+    },
+    "userinit.exe": {
+        "expected_parent": "winlogon.exe",
+        "max_instances": 5,
+        "expected_user": None,
+        "notes": "Starts user shell (explorer.exe) after logon; normally exits quickly",
+    },
+    "NisSrv.exe": {
+        "expected_parent": "services.exe",
+        "max_instances": 1,
+        "expected_user": "LOCAL SERVICE",
+        "notes": "Microsoft Network Realtime Inspection Service (Defender network IPS)",
+    },
 }
 
 # Process names commonly used by malware for masquerading
 MASQUERADE_TARGETS = {
     "lsass.exe", "svchost.exe", "csrss.exe", "services.exe",
     "winlogon.exe", "smss.exe", "explorer.exe", "System",
+    "wininit.exe", "lsaiso.exe", "spoolsv.exe", "WmiPrvSE.exe",
 }
 
 
