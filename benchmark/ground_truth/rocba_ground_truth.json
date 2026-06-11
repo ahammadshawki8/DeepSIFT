@@ -2,58 +2,110 @@
   "case_id": "ROCBA-2020",
   "case_name": "Fred Rocba Break-In and IP Theft",
   "incident_date": "2020-11-13",
-  "system": "Windows 10 Surface Laptop",
-  "timezone": "EST5EDT",
-  "victim": "Fred Rocba, Stark Research Labs engineer",
+  "system": "Windows 10 x64 Build 19041 (20H1) — Surface Laptop",
+  "timezone": "EST (UTC-5)",
+  "victim": "Fred Rocba (fredr), Stark Research Labs engineer",
+
+  "image_facts": {
+    "memory_image": "Rocba-Memory.raw",
+    "memory_size_gb": 18,
+    "memory_capture_time_utc": "2020-11-16 02:32:38",
+    "memory_capture_note": "Captured 3 days after the incident — Nov 13 activity NOT in memory",
+    "kernel_base": "0xf8025d600000",
+    "host_ip": "192.168.1.5",
+    "logged_in_user": "fredr",
+    "user_sid": "S-1-5-21-528816539-567677750-276746561-1002",
+    "volatility_version": "2.27.0"
+  },
 
   "known_facts": {
     "fred_left_for_vacation": "2020-11-10",
-    "break_in_occurred": "2020-11-13 evening",
+    "break_in_occurred": "2020-11-13 evening EST",
     "system_was_logged_in": true,
-    "target": "SRL intellectual property"
+    "target": "SRL intellectual property",
+    "user_accounts": [
+      "frocba@stark-research-labs.com",
+      "fred.rocba@outlook.com",
+      "fred.rocba@gmail.com"
+    ],
+    "cloud_services_installed": [
+      "OneDrive (Work)",
+      "OneDrive (Personal)",
+      "Google Drive Classic",
+      "Google Drive File Stream",
+      "iCloud Drive",
+      "iCloud Photos",
+      "iCloud Services",
+      "Dropbox",
+      "Slack",
+      "Microsoft Teams"
+    ],
+    "browsers_installed": ["Edge", "Firefox", "Chrome"]
   },
 
-  "key_questions": [
-    "What SRL projects did Fred have access to?",
-    "What was stolen?",
-    "Where was it transferred?",
-    "How was it stolen?",
-    "When did the activity occur?"
-  ],
-
-  "accounts_on_system": [
-    "fred.rocba@gmail.com",
-    "fred.rocba@outlook.com",
-    "frocba@stark-research-labs.com"
-  ],
-
-  "cloud_services": [
-    "Dropbox",
-    "OneDrive",
-    "Google Drive",
-    "iCloud",
-    "Office 365"
-  ],
-
-  "expected_findings": {
-    "suspicious_activity_window": "2020-11-13 evening EST",
-    "activity_type": "unauthorized_access",
-    "exfiltration_likely": true,
-    "browsers_installed": ["Edge", "Firefox", "Chrome"]
+  "protocol_sift_baseline": {
+    "run_date": "2026-06-11",
+    "analysis_type": "memory_only",
+    "image_analyzed": "Rocba-Memory.raw",
+    "findings": {
+      "correctly_identified": [
+        "RDP brute-force attack from 81.30.144.115 and 213.202.233.104 (Nov 16, not Nov 13)",
+        "6 active cloud sync services running at capture time",
+        "User identity: Fred Rocba, frocba@stark-research-labs.com",
+        "Work email OST file cached locally (high-value exfiltration target)",
+        "No code injection / malware in memory",
+        "No malicious persistence in Run keys",
+        "MRC.exe correctly identified as course tool (benign)"
+      ],
+      "missed": [
+        "Nov 13 unauthorized access event — requires disk/event log analysis",
+        "Browser activity on Nov 13 — requires browser history from disk",
+        "Files accessed or exfiltrated on Nov 13 — requires LNK/Jump List/MFT",
+        "Specific executables run during break-in — requires Prefetch/Shimcache",
+        "Dropbox activity on Nov 13 — client not running at capture time"
+      ],
+      "false_positives": [],
+      "root_cause_of_gaps": "Memory captured 3 days after incident. Nov 13 evidence lives on disk only. Protocol SIFT performed no disk artifact analysis (no event logs, no browser history, no execution artifacts)."
+    },
+    "iocs_from_memory": {
+      "hostile_ips": [
+        {"ip": "81.30.144.115", "connections": 59, "confidence": "HIGH", "note": "Nov 16 RDP attack, not Nov 13 incident"},
+        {"ip": "213.202.233.104", "connections": 54, "confidence": "HIGH", "note": "Nov 16 RDP attack, not Nov 13 incident"},
+        {"ip": "201.193.188.114", "connections": 3, "confidence": "MEDIUM", "note": "Early Nov 16 probe"},
+        {"ip": "81.19.209.101", "connections": 2, "confidence": "MEDIUM", "note": "Minor Nov 16 probe"}
+      ],
+      "suspicious_files": [
+        {"path": "D:\\Tools\\MRC.exe", "pid": 29440, "verdict": "benign_course_tool"}
+      ]
+    },
+    "score": {
+      "must_identify_found": 1,
+      "must_identify_total": 4,
+      "accuracy_score": 0.25,
+      "hallucination_count": 0,
+      "notes": "Protocol SIFT correctly reported what was in memory but the memory is from Nov 16, not Nov 13. The core incident evidence requires disk analysis."
+    }
   },
 
   "scoring_criteria": {
     "must_identify": [
-      "Unauthorized access on 2020-11-13",
-      "Evidence of file access or exfiltration",
-      "Cloud storage service usage",
-      "Browser activity during incident window"
+      "Unauthorized access event on 2020-11-13 (requires disk — event logs / browser history)",
+      "Evidence of file access or exfiltration (LNK files, Jump Lists, browser history, MFT)",
+      "Cloud storage service usage during incident window (browser history / Dropbox logs)",
+      "Browser activity during incident window (Nov 13 evening EST)"
+    ],
+    "bonus_identify": [
+      "Specific files or projects accessed by the unauthorized user",
+      "Dropbox activity (client was not running at memory capture, disk artifacts needed)",
+      "Attacker entry method (RDP? Physical access? Dropbox sync?)",
+      "Timeline reconstruction from multiple disk artifacts"
     ],
     "should_not_hallucinate": [
       "Process names not present in evidence",
-      "Network connections not in memory image",
-      "Specific stolen file names without evidence",
-      "Attacker identity without evidence"
+      "Network connections not observed in memory or disk logs",
+      "Specific stolen file names without supporting evidence",
+      "Attacker identity beyond what evidence shows",
+      "Claiming Nov 16 RDP attacks are the Nov 13 incident (different event)"
     ]
   }
 }
