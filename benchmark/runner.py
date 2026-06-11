@@ -111,13 +111,16 @@ class BenchmarkRunner:
     def score_run(self, run_result: dict) -> dict:
         findings = run_result.get("findings", {})
         if not findings:
+            must_identify = self.scorer.ground_truth.get("scoring_criteria", {}).get("must_identify", [])
             return {
                 "true_positives": 0,
                 "false_positives": 0,
-                "missed_artifacts": 0,
+                "missed_artifacts": len(must_identify),
                 "hallucinations": 0,
+                "hallucination_details": [],
                 "accuracy_score": 0.0,
-                "hallucination_rate": 1.0,
+                "hallucination_rate": 0.0,
+                "must_identify_coverage": f"0/{len(must_identify)}",
                 "error": run_result.get("error", "No findings available"),
             }
         return self.scorer.score(findings)
