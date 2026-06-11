@@ -1,243 +1,513 @@
 # DeepSIFT
 
-**AI-Driven Forensic Analysis with Zero Hallucinations**
+**AI-Driven Forensic Investigation for SANS SIFT Workstation**
 
-DeepSIFT is a Python MCP (Model Context Protocol) middleware server that wraps SANS SIFT Workstation forensic tools, dramatically reducing LLM hallucinations in autonomous AI-driven incident response.
+DeepSIFT is a Model Context Protocol (MCP) middleware layer that turns Claude into a
+zero-hallucination digital forensics analyst. Instead of letting an LLM guess at raw CLI
+output, DeepSIFT parses every SIFT tool response into structured JSON, injects per-tool
+forensic discipline (caveats, advisories, corroboration hints), enriches findings with
+MITRE ATT&CK tags and RAG-backed threat intelligence, and enforces chain-of-custody audit
+logging before the LLM ever sees a single byte of evidence.
 
-Built for the **[Find Evil! Hackathon](https://devpost.com/software/find-evil)** hosted by SANS DFIR.
+> **Hackathon:** [Find Evil! — SANS DFIR](https://findevil.devpost.com/) · Deadline: June 15, 2026
 
 ---
 
-## The Problem
+## Why DeepSIFT
 
-[Protocol SIFT](https://github.com/teamdfir/protocol-sift) connects Claude Code to SIFT Workstation but hallucinates more than acceptable:
+Protocol SIFT (the prompt-only baseline) passes raw CLI output directly into LLM context,
+relies on natural-language safety rules, and has no structured parsing. This creates three
+failure modes that DeepSIFT eliminates architecturally:
 
-| Protocol SIFT Problem | DeepSIFT Solution |
-|----------------------|-------------------|
-| Raw Volatility output (10k+ lines) dumped into context | Python parsers convert output to structured JSON first |
-| Generic `execute_shell_cmd` — agent guesses plugin names | Typed MCP functions — one function per tool action |
-| Prompt-only safety ("never modify evidence") | Architectural enforcement — zero write ops on evidence paths |
-| No threat intelligence context | RAG pipeline injects MITRE ATT&CK + IOCs into every finding |
+| Problem | Protocol SIFT | DeepSIFT |
+|---|---|---|
+| Raw CLI output → hallucination | Volatility/log2timeline text enters context unparsed | Python parsers produce typed JSON — raw text never reaches the LLM |
+| Safety via prompt → bypassable | "Do not write to /cases/" is a suggestion | `guard_output_path()` raises `PermissionError` at OS level |
+| No context → generic analysis | LLM has no threat intel during tool execution | ChromaDB RAG + MITRE ATT&CK injected into every tool response |
 
 ---
 
 ## Architecture
 
-```
-Claude Code (autonomous execution engine)
-        ↓ calls typed MCP functions
-DeepSIFT MCP Server  ←── RAG Pipeline (ChromaDB + MITRE ATT&CK)
-        ↓ executes and parses raw output
-SIFT Tools (volatility, log2timeline, sleuthkit, yara, ez tools)
-        ↑ structured JSON returned — raw text never reaches LLM
+```mermaid
+flowchart TD
+    A["Claude Code\n(LLM Agent)"] -->|"Typed MCP calls only\nno generic shell"| B
+
+    B["DeepSIFT MCP Server\nmcp_server/server.py"]
+    B -->|"Structured JSON only\nnever raw text"| A
+
+    B --> C["Tool Modules\n37 typed functions"]
+    C --> D["SIFT Tools\nVolatility · log2timeline · Sleuthkit\nEZ Tools · YARA"]
+    D -->|"raw output"| E["Parsers\npslist · netscan · malfind\ntimeline · mitre_auto_map"]
+    E -->|"structured dict"| F["Forensic Knowledge Envelope\ncaveats · advisories · corroboration"]
+    F -->|"enriched JSON"| B
+
+    B --> G["RAG Pipeline\nChromaDB + sentence-transformers"]
+    G --> H["Knowledge Sources\nMITRE ATT&CK · Threat Intel\nROCBA IOCs · Case History"]
+    H --> G
+
+    B --> I["Audit Logger\naudit_id · SHA-256 · forensic_audit.log"]
+    I --> J["exports/\nRaw tool output SHA-256 indexed\nanalysis/forensic_audit.log"]
 ```
 
 ---
 
-## Available MCP Tools
+## Tool Inventory
+
+DeepSIFT exposes **37 typed MCP tools** across six categories. No `run_shell`, no
+`execute_command` — every tool has a typed signature and returns structured JSON.
 
 ### Memory Forensics (Volatility 3)
-| Tool | Description |
-|------|-------------|
-| `get_process_list` | Process list with Hunt Evil baseline (31 procs), masquerade detection, MITRE tags |
-| `scan_hidden_processes` | **DKOM rootkit detection** — pslist vs psscan diff → T1014 |
-| `find_injected_code` | Malfind with injection type classification (shellcode/PE/hollowing) + MITRE tags |
-| `get_running_services` | svcscan with suspicious binary path detection → T1543.003 |
-| `get_network_connections` | Netscan with external IP flagging + MITRE tags per connection |
-| `get_command_history` | Cmdline with suspicious pattern detection + MITRE tags |
-| `get_loaded_dlls` | DLL list with path-based suspicion scoring |
-| `get_registry_hives` | Registry hive list from memory |
-| `get_registry_key` | Read specific registry key values |
-| `get_handles` | Open handles (files, mutexes, pipes) |
-| `finish_analysis` | Save final structured findings with MITRE technique summary |
 
-### Timeline (log2timeline / Plaso)
-| Tool | Description |
-|------|-------------|
-| `create_super_timeline` | Create Plaso storage from disk image |
-| `filter_timeline` | Extract events for a time window |
-| `get_browser_history` | WEBHIST events only |
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `get_process_list` | EPROCESS walk; SANS Hunt Evil baseline comparison | `suspicious`, `anomaly_details`, `mitre_techniques` |
+| `scan_hidden_processes` | pslist vs psscan diff → DKOM detection (T1014) | `hidden_processes`, `dkom_suspected` |
+| `find_injected_code` | malfind with injection type classification | `risk_level`, `injection_type`, `mitre_techniques` |
+| `get_running_services` | svcscan with suspicious binary path detection (T1543.003) | `suspicious_services` |
+| `get_network_connections` | netscan with external IP flagging + MITRE tags | `external_connections`, `mitre_techniques` |
+| `get_command_history` | cmdline with suspicious pattern detection | `suspicious_cmdlines`, `mitre_techniques` |
+| `get_loaded_dlls` | DLL listing for a specific PID | `dlls`, `unsigned_count` |
+| `get_registry_hives` | List hives in memory image | `hives` |
+| `get_registry_key` | Read a specific registry key from memory | `key`, `values` |
+
+### Timeline Analysis (log2timeline / Plaso)
+
+| Tool | Purpose |
+|---|---|
+| `create_super_timeline` | Build a Plaso super-timeline from a disk image (long-running) |
+| `filter_timeline` | Extract events for a specific time window; highlights suspicious keywords |
+| `get_browser_history` | Extract WEBHIST events (URLs, downloads, searches) from timeline |
 
 ### Disk Forensics (Sleuth Kit)
-| Tool | Description |
-|------|-------------|
-| `get_partition_table` | Partition layout via mmls |
-| `get_file_listing` | File system tree via fls |
-| `extract_file` | Extract file by inode via icat |
-| `search_deleted_files` | Deleted/unallocated files |
+
+| Tool | Purpose |
+|---|---|
+| `get_partition_table` | Read partition layout; returns sector offsets for follow-up calls |
+| `get_file_listing` | Recursive file listing with deleted-file flags |
+| `extract_file` | Extract file by inode number to `exports/` |
+| `search_deleted_files` | List only deleted/unallocated entries |
+
+### Windows Artifact Analysis (EZ Tools)
+
+| Tool | Source Artifact | Key Evidence |
+|---|---|---|
+| `parse_event_logs` | .evtx via EvtxECmd | Logon, service install, task create, PS script blocks, WMI, RDP |
+| `parse_shimcache` | SYSTEM hive via AppCompatCacheParser | Executable existence (proves file was on disk) |
+| `parse_amcache` | Amcache.hve via AmcacheParser | Execution evidence + SHA1 hash per executable |
+| `parse_prefetch` | C:\Windows\Prefetch via PECmd | Execution history with last 8 run times |
+| `parse_mft` | $MFT via MFTECmd | Full file-system timeline; detects timestamp anomalies |
+| `parse_lnk_files` | Recent Items via LECmd | Recently accessed file paths with timestamps |
+| `parse_jump_lists` | AutomaticDestinations via JLECmd | Application-specific recent file access |
+| `parse_registry_hive` | Any hive via RECmd | Raw key/value search with pattern matching |
+| `parse_recycle_bin` | $Recycle.Bin via RBCmd | Deleted file recovery with original paths |
+| `parse_srum` | SRUDB.dat via SrumECmd | Network bytes sent/received per application (exfil quantification) |
+| `parse_usn_journal` | $UsnJrnl:$J via MFTECmd | File system change journal; burst deletion detection |
+| `lookup_ip_reputation` | AbuseIPDB + VirusTotal APIs | Confidence score, country, ISP, VT malicious count |
+
+### Cross-Artifact Correlation
+
+| Tool | Purpose |
+|---|---|
+| `correlate_artifacts` | Join findings across memory/disk/network/registry by PID, path, IP, user |
+| `adversarial_review` | Challenge current hypothesis with counter-arguments before `finish_analysis` |
 
 ### YARA Hunting
-| Tool | Description |
-|------|-------------|
-| `scan_file_with_yara` | Scan file with rule set |
-| `scan_memory_with_yara` | Scan memory image via yarascan |
-| `list_yara_rule_sets` | Show available rules |
 
-### Windows Artifacts (EZ Tools)
-| Tool | Description |
-|------|-------------|
-| `parse_event_logs` | EVTX parsing — logon (4624/4625/4672), service (7045), tasks (4698), PowerShell (4104), WMI (5861), RDP (4778) |
-| `parse_shimcache` | AppCompatCache — executable existence proof from SYSTEM hive |
-| `parse_amcache` | Amcache.hve — SHA1 hash + first-run time per executable |
-| `parse_mft` | $MFT — full file system with timestamp anomaly detection |
-| `parse_prefetch` | Prefetch — program execution history (last 8 run times) |
-| `parse_lnk_files` | LNK shortcut files — recently accessed file paths |
-| `parse_jump_lists` | Jump Lists — application-specific recent file activity |
-| `parse_recycle_bin` | $Recycle.Bin — deleted file recovery with deletion timestamps |
-| `parse_registry_hive` | Offline registry hive parsing with keyword search |
-| `lookup_ip_reputation` | AbuseIPDB + VirusTotal threat intelligence |
+| Tool | Purpose |
+|---|---|
+| `list_yara_rule_sets` | Enumerate available rule sets |
+| `scan_memory_with_yara` | Yarascan via Volatility 3 (finds memory-resident payloads) |
+| `scan_file_with_yara` | Static file scan against named rule set |
+
+**Built-in YARA rule sets:** `suspicious_strings` · `webshells` · `ransomware` · `rats` · `packers`
+
+### Investigation Control
+
+| Tool | Purpose |
+|---|---|
+| `finish_analysis` | Structured report with `observation`/`interpretation` split + `audit_ids` citation |
 
 ---
 
-## Prerequisites
+## Hallucination Reduction Pipeline
 
-- **[SANS SIFT Workstation](https://sans.org/tools/sift-workstation)** (Ubuntu x86-64)
+```mermaid
+flowchart LR
+    A["Raw Tool Output\nVolatility / EZ Tools / etc."] --> B["Python Parser\nStructured dict"]
+    B --> C["MITRE Auto-Map\nmap_process_anomalies\nmap_injection\nmap_network_connection"]
+    C --> D["RAG Enrichment\nChromaDB query\nMITRE · threat intel · case IOCs"]
+    D --> E["Forensic Knowledge Envelope\ncaveats · advisories · corroboration"]
+    E --> F["audit_id\nSHA-256 of raw output\nTimestamp + export file path"]
+    F --> G["Structured JSON\nto LLM Context"]
+```
+
+Every tool call generates a unique `audit_id` (e.g. `dsift-2026-06-11-a3f9b2c1`).
+`finish_analysis` **requires** an `audit_ids` list — fabricated findings without a
+traced audit_id are structurally impossible to submit.
+
+---
+
+## Investigation Workflow
+
+### Memory Image
+
+```mermaid
+flowchart TD
+    A["get_process_list\nHunt Evil baseline + MITRE tags"] --> B["scan_hidden_processes\nDKOM rootkit detection"]
+    B --> C["find_injected_code\nmalfind injection classification"]
+    C --> D["get_running_services\nsuspicious binary paths"]
+    D --> E["get_network_connections\nexternal IP flagging"]
+    E --> F["get_command_history\nsuspicious pattern detection"]
+    F --> G["lookup_ip_reputation\nAbuseIPDB + VirusTotal"]
+    G --> H["correlate_artifacts\ncross-source PID/path/IP joins"]
+    H --> I["adversarial_review\nchallenge hypothesis"]
+    I --> J["finish_analysis\nobservation + interpretation\naudit_ids required"]
+```
+
+### Windows Artifact Analysis
+
+```mermaid
+flowchart TD
+    A["parse_event_logs\nlogon · service · task · PS · WMI · RDP"] --> B["parse_shimcache\nexecutable existence"]
+    B --> C["parse_amcache\nSHA1 hash per executable"]
+    C --> D["parse_prefetch\nexecution history x8 runs"]
+    D --> E["parse_mft\nfull FS timeline + timestamp anomalies"]
+    E --> F["parse_srum\nbytes sent per application\nexfil quantification"]
+    F --> G["parse_usn_journal\nburst deletion detection"]
+    G --> H["correlate_artifacts"]
+    H --> I["adversarial_review"]
+    I --> J["finish_analysis"]
+```
+
+---
+
+## Competitive Differentiation
+
+DeepSIFT was designed knowing the competitive landscape. Here is what sets it apart:
+
+| Feature | DeepSIFT | Valhuntir | Agentic-DART | Mulder | find-evil-agent |
+|---|:---:|:---:|:---:|:---:|:---:|
+| MCP typed tools | 37 | 75–100 | 72 | 140+ | 18 |
+| RAG injected at every tool call | ✅ | Report-only | ✗ | ✗ | ✗ |
+| MITRE auto-map at tool call time | ✅ | ✗ | ✗ | Navigator export | ✗ |
+| Cross-artifact correlation | ✅ | OpenSearch | DuckDB | SQLite FTS | ✗ |
+| Adversarial self-review | ✅ | ✗ | Contradiction detect | Phase 4 | ✗ |
+| Chain-of-custody audit_id | ✅ | HMAC+PBKDF2 | SHA-256 chained | BLAKE2b | ✗ |
+| Forensic knowledge envelope | ✅ per-tool | YAML catalog | ✗ | ✗ | ✗ |
+| finish_analysis provenance gate | ✅ audit_ids req. | Cryptographic | Structural | Report | ✗ |
+| Hunt Evil process baseline | 31 procs | 2.6M records | ✗ | NIST dataset | FAISS registry |
+| SRUM exfil quantification | ✅ | ✗ | ✗ | ✗ | ✗ |
+| USN Journal burst detection | ✅ | ✗ | ✗ | ✗ | ✗ |
+| Evidence write protection | Architectural | Bubblewrap kernel | Read-only MCP | ✗ | ✗ |
+| Multi-agent orchestration | LangGraph | Hub-spoke | Single | Pipeline | LangGraph |
+
+**DeepSIFT's unique proposition:** It is the only submission that injects RAG-backed MITRE
+threat intelligence into every individual tool call, not just at report generation time.
+Combined with the per-tool forensic knowledge envelope (caveats, advisories, corroboration),
+it enforces analytical discipline at the infrastructure layer where no prompt can override it.
+
+---
+
+## Setup
+
+### Prerequisites
+
+- SANS SIFT Workstation (Ubuntu 20.04+)
 - Python 3.10+
-- Volatility 3 (`python3 -m volatility3`)
-- log2timeline / Plaso (`log2timeline.py`, `psort.py`)
-- The Sleuth Kit (`fls`, `mmls`, `icat`)
-- YARA
-- EZ Tools at `/opt/zimmermantools/` (optional — Windows artifact tools)
+- Volatility 3, log2timeline, Sleuth Kit (pre-installed on SIFT)
+- EZ Tools at `/opt/zimmermantools/` (install with SIFT EZ Tools script)
 
----
-
-## Installation
+### Installation
 
 ```bash
-# Clone the repo
-git clone https://github.com/ahammadshawki8/DeepSIFT.git
-cd DeepSIFT
+git clone https://github.com/your-username/deepsift
+cd deepsift
 
 # Install Python dependencies
 pip3 install -r requirements.txt
 
-# Configure environment
+# Copy environment config
 cp .env.example .env
-nano .env  # Add your API keys and verify tool paths
+nano .env   # Add ABUSEIPDB_API_KEY and VIRUSTOTAL_API_KEY (optional but recommended)
 
-# Initialize RAG knowledge base (downloads ~100MB MITRE ATT&CK JSON)
-python3 rag/ingest/mitre_attack.py
+# Initialize RAG knowledge base (first run only, ~3-5 minutes)
+python3 rag/ingest/run_all.py
 
-# Run tests to verify parsers work
-pytest tests/ -v
+# Run tests
+pytest tests/
+# Expected: 32 passed
 ```
 
----
+### Connect to Claude Code
 
-## Quick Start — Investigate a Memory Image
-
-### Option A: One-Command Demo Script
-
-```bash
-# Memory-only investigation (3 steps: seed RAG → run → generate report)
-python3 demo.py --image /cases/ROCBA/Rocba-Memory.raw
-
-# Full investigation with disk artifact analysis
-python3 demo.py \
-  --image /cases/ROCBA/Rocba-Memory.raw \
-  --evidence-mount /mnt/evidence
-
-# With Protocol SIFT baseline comparison (generates HTML accuracy report)
-python3 demo.py \
-  --image /cases/ROCBA/Rocba-Memory.raw \
-  --baseline /cases/ROCBA-BASELINE/analysis/findings.json
-```
-
-### Option C: Use with Claude Code (Claude Code MCP)
-
-1. Add to your Claude Code MCP configuration:
+Add to `~/.claude.json` (or `.claude/settings.json` in your project):
 
 ```json
 {
   "mcpServers": {
     "deepsift": {
       "command": "python3",
-      "args": ["/path/to/DeepSIFT/mcp_server/server.py"]
+      "args": ["/path/to/deepsift/mcp_server/server.py"]
     }
   }
 }
 ```
 
-2. Start an investigation:
+Start the server in a separate terminal:
+
+```bash
+python3 mcp_server/server.py
+```
+
+---
+
+## Running an Investigation
+
+### Quick start (memory image only)
+
+```bash
+python3 demo.py --image /cases/ROCBA/Rocba-Memory.raw
+```
+
+### Full investigation with comparison report
+
+```bash
+python3 demo.py \
+    --image /cases/ROCBA/Rocba-Memory.raw \
+    --baseline benchmark/baselines/protocol_sift_rocba_findings.json \
+    --ground-truth benchmark/ground_truth/rocba_ground_truth.json
+```
+
+### With pre-loaded case IOCs
+
+```bash
+# Seed ROCBA-specific threat intel into RAG
+python3 rag/ingest/run_all.py --load-rocba
+
+python3 demo.py --image /cases/ROCBA/Rocba-Memory.raw
+```
+
+### Ask Claude to investigate interactively
+
+Once the MCP server is running and connected:
+
 ```
 Investigate /cases/ROCBA/Rocba-Memory.raw for signs of unauthorized access
-on or after November 13, 2020.
+on or after November 13, 2020. Use DeepSIFT tools only.
 ```
 
-Claude will automatically call `get_process_list` → `find_injected_code` → 
-`get_network_connections` → `finish_analysis` and produce a structured report.
-
-### Option D: Multi-Agent Orchestrator (LangGraph)
-
-```bash
-python3 agents/orchestrator.py --image /cases/ROCBA/Rocba-Memory.raw --case-dir /cases/ROCBA
-```
+Claude will follow the investigation workflow, call up to 10 tools, cross-correlate
+artifacts, challenge its own findings with adversarial review, and call `finish_analysis`
+with a structured report citing every audit_id.
 
 ---
 
-## Run Benchmark
+## Evidence Integrity
 
-Compare DeepSIFT against Protocol SIFT baseline:
-
-```bash
-python3 benchmark/runner.py \
-  --baseline /cases/ROCBA-BASELINE \
-  --ours /cases/ROCBA-DEEPSIFT \
-  --ground-truth benchmark/ground_truth/rocba_ground_truth.json \
-  --output docs/accuracy_report.md
-```
-
----
-
-## Configuration
-
-Copy `.env.example` to `.env`:
-
-```env
-ANTHROPIC_API_KEY=your_key_here
-VIRUSTOTAL_API_KEY=your_key_here      # optional — enables IP reputation
-ABUSEIPDB_API_KEY=your_key_here       # optional — enables IP reputation
-
-# Override tool paths if different from SIFT defaults
-VOLATILITY_CMD=python3 -m volatility3
-LOG2TIMELINE_CMD=log2timeline.py
-EZ_TOOLS_DIR=/opt/zimmermantools
-
-# Case directories
-CASE_DIR=/cases
-EXPORTS_DIR=./exports
-ANALYSIS_DIR=./analysis
-```
-
----
-
-## Chain of Custody
-
-Every tool execution is logged to `analysis/forensic_audit.log`:
+Every tool call generates an immutable audit record:
 
 ```json
 {
-  "timestamp": "2026-06-10T12:34:56.789Z",
+  "audit_id": "dsift-2026-06-11-a3f9b2c1",
+  "timestamp": "2026-06-11T14:23:07.412Z",
   "tool": "get_process_list",
-  "command": "python3 -m volatility3 -f /cases/ROCBA/Rocba-Memory.raw windows.pslist",
-  "raw_output_sha256": "abc123...",
-  "raw_output_file": "./exports/get_process_list_2026-06-10T12-34-56.txt"
+  "command": "python3 -m volatility3 -f /cases/ROCBA/Rocba-Memory.raw windows.pslist.PsList",
+  "raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "raw_output_file": "exports/get_process_list_2026-06-11T14-23-07-412Z.txt"
 }
 ```
 
-Raw outputs are preserved in `exports/` for audit trail purposes.
+The `finish_analysis` tool requires an `audit_ids` list. Any finding not traceable to a
+prior tool call is structurally blocked — the tool returns an error and no report is written.
+
+---
+
+## RAG Knowledge Base
+
+The RAG pipeline (ChromaDB + sentence-transformers) is seeded from:
+
+| Source | Documents | Coverage |
+|---|---|---|
+| MITRE ATT&CK Enterprise | ~650 techniques | Full technique descriptions, detection guidance, mitigations |
+| Threat intelligence IOCs | Case-specific | ROCBA hostile IPs, MRC.exe verdict, cloud exfil surface |
+| Case history | Investigation reports | Prior findings from related cases |
+
+RAG context is injected into tool responses at call time — the LLM sees threat intelligence
+alongside the parsed artifact data, not as a separate lookup step.
+
+---
+
+## Benchmark
+
+DeepSIFT includes a scoring framework to measure improvement over Protocol SIFT:
+
+```bash
+python3 demo.py \
+    --image /cases/ROCBA/Rocba-Memory.raw \
+    --baseline benchmark/baselines/protocol_sift_rocba_findings.json \
+    --ground-truth benchmark/ground_truth/rocba_ground_truth.json \
+    --report-output docs/accuracy_report.html
+```
+
+The HTML report shows:
+- Side-by-side finding comparison (DeepSIFT vs Protocol SIFT)
+- Color-coded MITRE ATT&CK badges
+- Precision, recall, and F1 scores vs ground truth
+- Chain-of-custody audit trail summary
+
+---
+
+## Project Structure
+
+```
+DeepSIFT/
+├── mcp_server/
+│   ├── server.py                  ← MCP server entry point (37 tools)
+│   ├── config.py                  ← Tool paths, environment config
+│   ├── audit.py                   ← audit_id generation, tool counter, chain-of-custody log
+│   ├── tools/
+│   │   ├── volatility.py          ← 9 Volatility 3 tools + finish_analysis
+│   │   ├── windows_artifacts.py   ← 11 EZ Tools wrappers
+│   │   ├── log2timeline.py        ← 3 Plaso tools
+│   │   ├── sleuthkit.py           ← 4 Sleuth Kit tools
+│   │   ├── yara_tools.py          ← 3 YARA tools
+│   │   └── correlation.py         ← correlate_artifacts + adversarial_review
+│   └── parsers/
+│       ├── pslist_parser.py       ← SANS Hunt Evil baseline (31 processes)
+│       ├── netscan_parser.py      ← External IP extraction and flagging
+│       ├── malfind_parser.py      ← Injection type classification
+│       ├── timeline_parser.py     ← Suspicious keyword detection
+│       ├── mitre_auto_map.py      ← Rule-based MITRE ATT&CK mapping
+│       └── forensic_knowledge.py  ← Per-tool caveats/advisories/corroboration
+├── rag/
+│   ├── knowledge_base.py          ← ChromaDB vector store
+│   ├── query.py                   ← Semantic search interface
+│   └── ingest/
+│       ├── mitre_attack.py        ← MITRE ATT&CK Enterprise ingestion
+│       ├── case_history.py        ← Case-specific findings ingestion
+│       ├── rocba_iocs.py          ← ROCBA case IOC seeding
+│       └── run_all.py             ← One-command RAG initialization
+├── agents/
+│   └── orchestrator.py            ← LangGraph multi-agent coordination
+├── benchmark/
+│   ├── runner.py                  ← Benchmark execution
+│   ├── scorer.py                  ← Precision/recall/F1 vs ground truth
+│   ├── baselines/                 ← Protocol SIFT reference findings
+│   └── reports/html_report.py     ← Visual HTML comparison report
+├── tests/                         ← pytest unit tests (32 passing)
+├── yara_rules/
+│   ├── suspicious_strings.yar     ← T1059.001, T1003, T1218, T1547.001
+│   ├── webshells.yar              ← T1505.003
+│   ├── ransomware.yar             ← T1486, T1490
+│   ├── rats.yar                   ← T1219, T1071
+│   └── packers.yar                ← T1027.002
+├── analysis/                      ← findings.json + forensic_audit.log (runtime)
+├── exports/                       ← raw tool outputs SHA-256 indexed (runtime)
+├── docs/                          ← architecture.md, dataset.md, devpost_submission.md
+├── demo.py                        ← End-to-end demo script
+├── .env.example                   ← Environment template
+└── requirements.txt
+```
+
+---
+
+## MITRE ATT&CK Coverage
+
+DeepSIFT's `mitre_auto_map.py` tags findings in real time at the tool layer:
+
+| Finding | Technique |
+|---|---|
+| Process injection (PE header in RWX region) | T1055 — Process Injection |
+| PowerShell encoding (`-enc`, `-e` flags) | T1059.001 — PowerShell |
+| Registry run key modification | T1547.001 — Registry Run Keys |
+| Active external network connection from suspicious process | T1071 — Application Layer Protocol |
+| LSASS memory access | T1003.001 — LSASS Memory |
+| DKOM-hidden process (pslist vs psscan gap) | T1014 — Rootkit |
+| Service install (event 7045 / 4697) | T1543.003 — Windows Service |
+| Scheduled task (event 4698 / 106) | T1053.005 — Scheduled Task |
+| WMI event subscription (event 5860 / 5861) | T1546.003 — WMI Persistence |
+| Lateral movement (RDP / SMB) | T1021.001 / T1021.002 |
+| Executable in temp dir (shimcache) | T1036.005 — Match Legitimate Name |
+| PowerShell script block (event 4104) | T1059.001 — PowerShell |
+| Cloud storage upload (SRUM high bytes_sent) | T1567.002 — Exfiltration to Cloud Storage |
+| Burst file deletion (USN Journal) | T1070 — Indicator Removal |
+| Timestamp anomaly (MFT 0x10 vs 0x30) | T1070.006 — Timestomping |
+
+---
+
+## Hard Rules (Architectural Enforcement)
+
+These are not prompts — they are code:
+
+1. **Read-only evidence** — `guard_output_path()` raises `PermissionError` for any write
+   attempt under `/cases/`, `/mnt/`, or `/media/`. No prompt override possible.
+
+2. **No shell escape** — There is no `run_command` or `execute_shell` tool on the MCP
+   surface. The server exposes only the 37 typed tools listed above.
+
+3. **Maximum 10 tool calls** — `audit.py` counter enforces this. At call 10, every tool
+   returns a `MAX_ITERATIONS reached` warning and `finish_analysis` must be called.
+
+4. **Provenance-gated reporting** — `finish_analysis` requires a non-empty `audit_ids`
+   list. An empty list returns an error — fabricated findings structurally cannot be submitted.
+
+5. **Observation/interpretation split** — `finish_analysis` takes separate `observation`
+   (factual, what tools showed) and `interpretation` (analytical, what it means) parameters.
+   This separation reduces hallucination by preventing blending of artifact data with inference.
+
+---
+
+## Environment Variables
+
+Copy `.env.example` to `.env` and configure:
+
+```bash
+# SIFT tool commands (usually pre-configured on SIFT VM)
+VOLATILITY_CMD=python3 -m volatility3
+LOG2TIMELINE_CMD=log2timeline.py
+PSORT_CMD=psort.py
+FLS_CMD=fls
+MMLS_CMD=mmls
+ICAT_CMD=icat
+YARA_CMD=yara
+
+# EZ Tools directory (SIFT default)
+EZ_TOOLS_DIR=/opt/zimmermantools
+
+# Optional — enables IP reputation lookups
+ABUSEIPDB_API_KEY=your_key_here
+VIRUSTOTAL_API_KEY=your_key_here
+
+# Investigation constraints
+MAX_TOOL_TIMEOUT=120
+MAX_ITERATIONS=10
+```
+
+---
+
+## Development
+
+```bash
+# Run tests (32 expected)
+pytest tests/ -v
+
+# Syntax check
+python -m py_compile mcp_server/tools/*.py mcp_server/parsers/*.py
+
+# Seed RAG knowledge base
+python3 rag/ingest/run_all.py
+
+# Seed with ROCBA case IOCs
+python3 rag/ingest/run_all.py --load-rocba
+```
 
 ---
 
 ## License
 
-MIT License — see [LICENSE](LICENSE)
+MIT License — see `LICENSE` file.
 
 ---
 
-## Acknowledgments
-
-- [SANS DFIR](https://sans.org/dfir) — SIFT Workstation and FOR508 Hunt Evil poster
-- [MITRE ATT&CK](https://attack.mitre.org/) — threat intelligence framework
-- [Protocol SIFT](https://github.com/teamdfir/protocol-sift) — baseline this project improves upon
-- [Volatility Foundation](https://volatilityfoundation.org/) — Volatility 3
+*DeepSIFT was built for the [Find Evil! hackathon](https://findevil.devpost.com/) hosted by SANS DFIR.*

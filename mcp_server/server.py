@@ -58,14 +58,20 @@ from mcp_server.tools.log2timeline import register_log2timeline_tools
 from mcp_server.tools.sleuthkit import register_sleuthkit_tools
 from mcp_server.tools.yara_tools import register_yara_tools
 from mcp_server.tools.windows_artifacts import register_windows_artifact_tools
+from mcp_server.tools.correlation import register_correlation_tools
 
 register_volatility_tools(mcp, rag)
 register_log2timeline_tools(mcp, rag)
 register_sleuthkit_tools(mcp, rag)
 register_yara_tools(mcp, rag)
 register_windows_artifact_tools(mcp, rag)
+register_correlation_tools(mcp, rag)
 
-logger.info(f"DeepSIFT MCP server initialized with {len(mcp.list_tools())} tools")
+try:
+    tool_count = len(mcp.list_tools())
+    logger.info(f"DeepSIFT MCP server initialized with {tool_count} tools")
+except Exception:
+    logger.info("DeepSIFT MCP server initialized")
 
 if __name__ == "__main__":
     mcp.run()

@@ -5,7 +5,8 @@ import subprocess
 from pathlib import Path
 
 from mcp_server.config import FLS_CMD, MMLS_CMD, ICAT_CMD, EXPORTS_DIR, MAX_TOOL_TIMEOUT
-from mcp_server.audit import log_tool_execution
+from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter
+from mcp_server.parsers.forensic_knowledge import wrap_response
 
 
 def _run(cmd: list[str], tool_name: str) -> tuple[str, str]:
@@ -38,15 +39,18 @@ def register_sleuthkit_tools(mcp, rag=None):
         """
         cmd = [MMLS_CMD, image_path]
         stdout, stderr = _run(cmd, "get_partition_table")
+        audit_id = get_last_audit_id()
+        increment_tool_counter()
 
         if stderr and not stdout:
-            return json.dumps({"error": stderr})
+            return json.dumps({"error": stderr, "audit_id": audit_id})
 
         partitions = _parse_mmls(stdout)
-        return json.dumps({
+        data = {
             "partitions": partitions,
             "note": "Use 'offset' value (in sectors) with get_file_listing to browse a partition.",
-        }, default=str)
+        }
+        return wrap_response("get_partition_table", data, audit_id)
 
     @mcp.tool()
     def get_file_listing(image_path: str, partition_offset: int, directory: str = "") -> str:
@@ -65,19 +69,22 @@ def register_sleuthkit_tools(mcp, rag=None):
             cmd.append(image_path)
 
         stdout, stderr = _run(cmd, "get_file_listing")
+        audit_id = get_last_audit_id()
+        increment_tool_counter()
 
         if stderr and not stdout:
-            return json.dumps({"error": stderr})
+            return json.dumps({"error": stderr, "audit_id": audit_id})
 
         files = _parse_fls(stdout)
         deleted = [f for f in files if f.get("deleted")]
 
-        return json.dumps({
+        data = {
             "total_files": len(files),
             "deleted_files": len(deleted),
             "files": files[:200],
             "deleted_file_list": deleted[:50],
-        }, default=str)
+        }
+        return wrap_response("get_file_listing", data, audit_id)
 
     @mcp.tool()
     def extract_file(image_path: str, partition_offset: int, inode: str, output_name: str) -> str:
@@ -92,12 +99,10 @@ def register_sleuthkit_tools(mcp, rag=None):
             inode: Inode number from get_file_listing (e.g. '32456-128-1').
             output_name: Filename to save the extracted file as in exports/.
         """
-        # Sanitize output_name: strip path separators to prevent directory traversal
-        safe_name = Path(output_name).name  # keeps only the final component
+        safe_name = Path(output_name).name
         if not safe_name:
             return json.dumps({"error": "output_name must be a valid filename, not a path"})
         resolved = (EXPORTS_DIR / safe_name).resolve()
-        # Verify the resolved path stays inside EXPORTS_DIR
         if not str(resolved).startswith(str(EXPORTS_DIR.resolve())):
             return json.dumps({"error": "output_name resolves outside exports directory"})
         output_path = str(resolved)
@@ -106,13 +111,16 @@ def register_sleuthkit_tools(mcp, rag=None):
         try:
             result = subprocess.run(cmd, capture_output=True, timeout=MAX_TOOL_TIMEOUT)
             log_tool_execution("extract_file", cmd, f"[binary output: {len(result.stdout)} bytes]")
+            audit_id = get_last_audit_id()
+            increment_tool_counter()
             with open(output_path, "wb") as f:
                 f.write(result.stdout)
-            return json.dumps({
+            data = {
                 "status": "extracted",
                 "output_file": output_path,
                 "size_bytes": len(result.stdout),
-            })
+            }
+            return wrap_response("extract_file", data, audit_id)
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
             return json.dumps({"error": str(e)})
 
@@ -130,15 +138,18 @@ def register_sleuthkit_tools(mcp, rag=None):
         """
         cmd = [FLS_CMD, "-o", str(partition_offset), "-r", "-d", image_path]
         stdout, stderr = _run(cmd, "search_deleted_files")
+        audit_id = get_last_audit_id()
+        increment_tool_counter()
 
         if stderr and not stdout:
-            return json.dumps({"error": stderr})
+            return json.dumps({"error": stderr, "audit_id": audit_id})
 
         files = _parse_fls(stdout)
-        return json.dumps({
+        data = {
             "deleted_file_count": len(files),
             "files": files[:100],
-        }, default=str)
+        }
+        return wrap_response("search_deleted_files", data, audit_id)
 
 
 def _parse_mmls(raw: str) -> list[dict]:

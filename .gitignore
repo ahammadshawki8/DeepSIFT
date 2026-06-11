@@ -63,3 +63,9 @@ desktop.ini
 
 # YARA compiled rules
 *.yarc
+
+# Claude Code local settings
+.claude/
+
+# Local reference / development materials
+additional_details/

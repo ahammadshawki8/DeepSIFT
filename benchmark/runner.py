@@ -46,7 +46,7 @@ class BenchmarkRunner:
             "error": "",
         }
 
-        findings_file = Path(case_dir) / "analysis" / "findings.json"
+        findings_file = Path(case_dir) / "findings.json"
 
         if findings_file.exists():
             try:
@@ -59,7 +59,7 @@ class BenchmarkRunner:
         else:
             result["error"] = (
                 f"No findings.json found at {findings_file}. "
-                "Run Protocol SIFT manually first and save findings to analysis/findings.json"
+                "Run Protocol SIFT manually first and save findings.json to that directory."
             )
 
         result["duration_seconds"] = time.time() - start
@@ -88,8 +88,8 @@ class BenchmarkRunner:
             "error": "",
         }
 
-        findings_file = Path(case_dir) / "analysis" / "findings.json"
-        Path(case_dir + "/analysis").mkdir(parents=True, exist_ok=True)
+        findings_file = Path(case_dir) / "findings.json"
+        Path(case_dir).mkdir(parents=True, exist_ok=True)
 
         if findings_file.exists():
             try:
@@ -100,7 +100,7 @@ class BenchmarkRunner:
         else:
             result["error"] = (
                 f"No findings.json at {findings_file}. "
-                "Run DeepSIFT investigation first then re-run benchmark."
+                "Run demo.py first, then pass --ours <case-dir> where case-dir is the --case-dir used in demo.py."
             )
 
         result["duration_seconds"] = time.time() - start

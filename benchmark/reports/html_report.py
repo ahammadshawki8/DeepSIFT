@@ -340,10 +340,12 @@ def generate_from_files(
         gt = json.load(f)
 
     def _load(path: str) -> dict:
+        if not path:
+            return {}
         try:
             with open(path, encoding="utf-8") as f:
                 return json.load(f)
-        except FileNotFoundError:
+        except (FileNotFoundError, OSError, ValueError):
             return {}
 
     b_findings = _load(baseline_findings_path)

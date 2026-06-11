@@ -5,7 +5,8 @@ import subprocess
 from pathlib import Path
 
 from mcp_server.config import YARA_CMD, VOLATILITY_CMD, YARA_RULES_DIR, EXPORTS_DIR, MAX_TOOL_TIMEOUT
-from mcp_server.audit import log_tool_execution
+from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter
+from mcp_server.parsers.forensic_knowledge import wrap_response
 
 BUILTIN_RULE_SETS = {
     "suspicious_strings": "suspicious_strings.yar",
@@ -52,14 +53,17 @@ def register_yara_tools(mcp, rag=None):
 
         cmd = [YARA_CMD, "-r", rules_path, file_path]
         stdout, stderr = _run(cmd, "scan_file_with_yara")
+        audit_id = get_last_audit_id()
+        increment_tool_counter()
 
         matches = _parse_yara_output(stdout)
-        return json.dumps({
+        data = {
             "file": file_path,
             "rule_set": rule_set,
             "match_count": len(matches),
             "matches": matches,
-        }, default=str)
+        }
+        return wrap_response("scan_file_with_yara", data, audit_id)
 
     @mcp.tool()
     def scan_memory_with_yara(image_path: str, rule_set: str = "suspicious_strings") -> str:
@@ -80,14 +84,17 @@ def register_yara_tools(mcp, rag=None):
 
         cmd = VOLATILITY_CMD + ["-f", image_path, "windows.yarascan.YaraScan", "--yara-file", rules_path]
         stdout, stderr = _run(cmd, "scan_memory_with_yara")
+        audit_id = get_last_audit_id()
+        increment_tool_counter()
 
         matches = _parse_yara_output(stdout)
-        return json.dumps({
+        data = {
             "image": image_path,
             "rule_set": rule_set,
             "match_count": len(matches),
             "matches": matches[:50],
-        }, default=str)
+        }
+        return wrap_response("scan_memory_with_yara", data, audit_id)
 
     @mcp.tool()
     def list_yara_rule_sets() -> str:
@@ -100,7 +107,6 @@ def register_yara_tools(mcp, rag=None):
             path = YARA_RULES_DIR / filename
             available[name] = {"file": filename, "exists": path.exists()}
 
-        # Also list any custom .yar files
         custom = [f.name for f in YARA_RULES_DIR.glob("*.yar") if f.name not in BUILTIN_RULE_SETS.values()]
 
         return json.dumps({
@@ -115,7 +121,6 @@ def _parse_yara_output(raw: str) -> list[dict]:
         line = line.strip()
         if not line:
             continue
-        # YARA output format: RuleName [metadata] FileName
         if " " in line:
             parts = line.split(" ", 2)
             matches.append({

@@ -1,0 +1,56 @@
+{
+  "case_id": "ROCBA-2020",
+  "case_name": "Fred Rocba Break-In — Protocol SIFT Memory-Only Baseline",
+  "summary": "Memory-only analysis of Rocba-Memory.raw (Windows 10, captured 2020-11-16 02:32:38 UTC). No malware, code injection, or rootkit detected. Two hostile external IPs (81.30.144.115 and 213.202.233.104) conducted an active RDP brute-force attack on 2020-11-16 — 3 days after the reported Nov 13 incident. Six cloud synchronization services (OneDrive x2, Google Drive x2, iCloud x3, Slack, Teams) were actively connected at capture time. MRC.exe (PID 29440, D:\\Tools\\MRC.exe) is a benign ROCBA course exercise tool. Memory captured 3 days post-incident; Nov 13 unauthorized access activity requires disk forensics.",
+  "suspicious_processes": [
+    "MRC.exe (PID 29440) — non-standard path D:\\Tools\\MRC.exe; ROCBA course tool; benign"
+  ],
+  "network_iocs": [
+    "81.30.144.115",
+    "213.202.233.104",
+    "201.193.188.114",
+    "81.19.209.101"
+  ],
+  "mitre_techniques": [
+    "T1110",
+    "T1021.001"
+  ],
+  "timeline": [
+    "2020-11-16 02:30:05 UTC — First RDP probe from 201.193.188.114",
+    "2020-11-16 02:31:15 UTC — MRC.exe launched (course tool, PID 29440)",
+    "2020-11-16 02:31:18 UTC — First connection from 213.202.233.104",
+    "2020-11-16 02:31:26 UTC — First connection from 81.30.144.115",
+    "2020-11-16 02:32:38 UTC — Memory capture (windows.info SystemTime)",
+    "2020-11-16 02:34:45 UTC — Multiple ESTABLISHED RDP sessions from both hostile IPs",
+    "2020-11-16 02:36:24 UTC — Last recorded RDP connection"
+  ],
+  "confidence": "high",
+  "analysis_type": "memory_only",
+  "image_facts": {
+    "capture_time_utc": "2020-11-16 02:32:38",
+    "days_after_incident": 3,
+    "os": "Windows 10 x64 Build 19041 (20H1)",
+    "logged_in_user": "fredr",
+    "host_ip": "192.168.1.5"
+  },
+  "cloud_services_active": [
+    "OneDrive.exe (Work) — PID 9648",
+    "OneDrive.exe (Personal) — PID 6188",
+    "googledrivesync.exe — PID 8432",
+    "GoogleDriveFS.exe — PID 14832",
+    "iCloudPhotos.exe — PID 12532",
+    "iCloudDrive.exe — PID 13260",
+    "Slack.exe — PID 1152",
+    "Teams.exe — PID 11672"
+  ],
+  "analysis_notes": [
+    "Memory was captured 2020-11-16 — 3 days after the reported Nov 13 incident.",
+    "Nov 13 unauthorized access event cannot be analyzed from memory alone.",
+    "Disk forensics required: event logs, browser history, LNK files, prefetch, shimcache, MFT.",
+    "No code injection detected in any process.",
+    "No malicious services or persistence in Run keys.",
+    "RDP brute-force (Nov 16) is a separate event from the Nov 13 break-in."
+  ],
+  "high_risk_injections": 0,
+  "status": "complete"
+}

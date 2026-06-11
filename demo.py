@@ -11,10 +11,10 @@ With disk image (full analysis):
         --disk-image /cases/ROCBA/Rocba-Disk.E01 \\
         --evidence-mount /mnt/evidence
 
-With Protocol SIFT baseline comparison:
+With Protocol SIFT baseline comparison (pass findings.json path directly):
     python3 demo.py \\
         --image /cases/ROCBA/Rocba-Memory.raw \\
-        --baseline /cases/ROCBA-BASELINE/analysis/findings.json \\
+        --baseline benchmark/baselines/protocol_sift_rocba_findings.json \\
         --ground-truth benchmark/ground_truth/rocba_ground_truth.json
 
 With case-specific IOCs loaded into RAG:
@@ -187,7 +187,7 @@ def main():
     parser.add_argument("--evidence-mount", default="",
                         help="Optional mounted evidence path for EZ Tools")
     parser.add_argument("--baseline", default="",
-                        help="Protocol SIFT findings.json path for comparison report")
+                        help="Protocol SIFT findings.json path for comparison report (e.g. benchmark/baselines/protocol_sift_rocba_findings.json)")
     parser.add_argument("--ground-truth", default="",
                         help="Ground truth JSON for scoring (e.g. benchmark/ground_truth/rocba_ground_truth.json)")
     parser.add_argument("--report-output", default="docs/accuracy_report.html",
