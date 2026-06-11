@@ -43,6 +43,7 @@ def generate_comparison_html(
     output_path: str = "docs/accuracy_report.html",
 ) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    case_name = ground_truth.get("case_name", ground_truth.get("case_id", "Unknown Case"))
 
     must_identify = ground_truth.get("scoring_criteria", {}).get("must_identify", [])
     should_not = ground_truth.get("scoring_criteria", {}).get("should_not_hallucinate", [])
@@ -97,7 +98,7 @@ def generate_comparison_html(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DeepSIFT Accuracy Report — Protocol SIFT vs DeepSIFT</title>
+<title>DeepSIFT Accuracy Report — {case_name}</title>
 <style>
   :root {{
     --green: #27ae60; --red: #e74c3c; --orange: #e67e22;
@@ -174,7 +175,7 @@ def generate_comparison_html(
 <body>
 <header>
   <h1>DeepSIFT Accuracy Report</h1>
-  <p>Protocol SIFT vs DeepSIFT — ROCBA-2020 Case (Rocba-Memory.raw) &nbsp;|&nbsp; Generated: {ts}</p>
+  <p>Protocol SIFT vs DeepSIFT — {case_name} &nbsp;|&nbsp; Generated: {ts}</p>
 </header>
 <div class="container">
 
@@ -316,7 +317,7 @@ def generate_comparison_html(
   </div>
 
 </div>
-<footer>DeepSIFT — Find Evil! Hackathon, SANS DFIR &nbsp;|&nbsp; {ts}</footer>
+<footer>DeepSIFT — Find Evil! Hackathon, SANS DFIR &nbsp;|&nbsp; {case_name} &nbsp;|&nbsp; {ts}</footer>
 </body>
 </html>"""
 

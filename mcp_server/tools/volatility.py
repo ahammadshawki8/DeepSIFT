@@ -464,42 +464,41 @@ def _parse_svcscan(raw: str) -> list[dict]:
     """
     Parse Volatility 3 windows.svcscan output.
 
-    Columns: Offset  Order  PID  Start  State  Type  Name  DisplayName  BinaryPath
+    Volatility 3 uses TAB as column separator. Columns:
+        Offset  Order  PID  Start  State  Type  Name  DisplayName  BinaryPath
+
+    DisplayName can contain spaces; tab-splitting gives exact column boundaries.
     """
     services = []
     header_found = False
 
     for line in raw.splitlines():
-        line = line.strip()
-        if not line or line.startswith("Volatility") or line.startswith("Progress"):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("Volatility") or stripped.startswith("Progress"):
             continue
-        if "Name" in line and "State" in line and ("BinaryPath" in line or "Binary" in line):
+        if "Name" in stripped and "State" in stripped and ("BinaryPath" in stripped or "Binary" in stripped):
             header_found = True
             continue
         if not header_found:
             continue
 
-        parts = line.split()
+        # Use tab splitting to respect multi-word DisplayName
+        parts = stripped.split("\t")
         if len(parts) < 6:
-            continue
-
-        # Reconstruct binary path from trailing parts
-        # Format varies; look for parts that look like a path
-        binary_path = ""
-        name = ""
-        state = ""
-        pid = 0
+            # Fall back: still try space split with at least 6 tokens
+            parts = stripped.split()
+            if len(parts) < 6:
+                continue
 
         try:
-            # Try parsing: Offset Order PID Start State Type Name DisplayName BinaryPath
-            pid = int(parts[2]) if parts[2].isdigit() else 0
+            pid_raw = parts[2] if len(parts) > 2 else "0"
+            pid = int(pid_raw) if pid_raw.isdigit() else 0
             state = parts[4] if len(parts) > 4 else ""
             name = parts[6] if len(parts) > 6 else ""
-            # BinaryPath is last column, may contain spaces
-            if len(parts) > 8:
-                binary_path = " ".join(parts[8:])
+            # With tab-splitting, BinaryPath is at index 8 exactly
+            binary_path = parts[8].strip() if len(parts) > 8 else ""
         except (IndexError, ValueError):
-            pass
+            continue
 
         suspicious = bool(binary_path) and any(
             s in binary_path.lower() for s in _SUSPICIOUS_SVC_PATHS

@@ -92,7 +92,15 @@ def register_sleuthkit_tools(mcp, rag=None):
             inode: Inode number from get_file_listing (e.g. '32456-128-1').
             output_name: Filename to save the extracted file as in exports/.
         """
-        output_path = str(EXPORTS_DIR / output_name)
+        # Sanitize output_name: strip path separators to prevent directory traversal
+        safe_name = Path(output_name).name  # keeps only the final component
+        if not safe_name:
+            return json.dumps({"error": "output_name must be a valid filename, not a path"})
+        resolved = (EXPORTS_DIR / safe_name).resolve()
+        # Verify the resolved path stays inside EXPORTS_DIR
+        if not str(resolved).startswith(str(EXPORTS_DIR.resolve())):
+            return json.dumps({"error": "output_name resolves outside exports directory"})
+        output_path = str(resolved)
         cmd = [ICAT_CMD, "-o", str(partition_offset), image_path, inode]
 
         try:
