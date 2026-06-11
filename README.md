@@ -9,7 +9,7 @@ forensic discipline (caveats, advisories, corroboration hints), enriches finding
 MITRE ATT&CK tags and RAG-backed threat intelligence, and enforces chain-of-custody audit
 logging before the LLM ever sees a single byte of evidence.
 
-**59 typed MCP tools · Post-hoc grounding verification · 4-axis quantified confidence scoring · 3,700+ Sigma rules via Hayabusa · 6-type contradiction detection · vigia-cases benchmark runner**
+**148 typed MCP tools · Post-hoc grounding verification · 4-axis quantified confidence scoring · 3,700+ Sigma rules via Hayabusa · 6-type contradiction detection · vigia-cases benchmark runner**
 
 > **Hackathon:** [Find Evil! — SANS DFIR](https://findevil.devpost.com/) · Deadline: June 15, 2026
 
@@ -42,7 +42,7 @@ flowchart TD
     B["DeepSIFT MCP Server\nmcp_server/server.py"]
     B -->|"Structured JSON only\nnever raw text"| A
 
-    B --> C["Tool Modules\n59 typed functions"]
+    B --> C["Tool Modules\n148 typed functions"]
     C --> D["SIFT Tools\nVolatility · log2timeline · Sleuthkit\nEZ Tools · YARA · Hayabusa"]
     D -->|"raw output"| E["Parsers\npslist · netscan · malfind\ntimeline · mitre_auto_map"]
     E -->|"structured dict"| F["Forensic Knowledge Envelope\ncaveats · advisories · corroboration"]
@@ -60,7 +60,7 @@ flowchart TD
 
 ## Tool Inventory
 
-DeepSIFT exposes **59 typed MCP tools** across nine categories. No `run_shell`, no
+DeepSIFT exposes **148 typed MCP tools** across nine categories. No `run_shell`, no
 `execute_command` — every tool has a typed signature and returns structured JSON.
 
 ### Memory Forensics — Core (Volatility 3)
@@ -519,7 +519,7 @@ These are not prompts — they are code:
    attempt under `/cases/`, `/mnt/`, or `/media/`. No prompt override possible.
 
 2. **No shell escape** — There is no `run_command` or `execute_shell` tool on the MCP
-   surface. The server exposes only the 59 typed tools listed above.
+   surface. The server exposes only the 148 typed tools listed above.
 
 3. **Maximum 10 tool calls** — `audit.py` counter enforces this. At call 10, every tool
    returns a `MAX_ITERATIONS reached` warning and `finish_analysis` must be called.

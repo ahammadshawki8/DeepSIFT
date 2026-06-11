@@ -892,6 +892,609 @@ FORENSIC_KNOWLEDGE: dict[str, dict] = {
             "Re-run the relevant tool if the audit_id is missing or the export file is empty.",
         ],
     },
+
+    # ── Browser artifact tools ────────────────────────────────────────────────
+
+    "parse_chrome_history": {
+        "caveats": [
+            "Chrome history is stored in an SQLite WAL database — visit_time is microseconds since 1601-01-01.",
+            "Incognito mode visits are NOT stored — their absence is expected, not evidence of deletion.",
+            "Multiple Chrome profiles exist per user — all profile directories should be checked.",
+        ],
+        "advisories": [
+            "A visit to a cloud storage URL does NOT prove exfiltration — it proves the page was visited.",
+            "Correlation with download records is required before asserting data transfer.",
+        ],
+        "corroboration": [
+            "Cross-reference suspicious URLs with parse_chrome_extensions for malicious extensions.",
+            "Run lookup_domain_reputation on flagged domains.",
+            "Correlate download timestamps with parse_mft for files created at the same time.",
+        ],
+    },
+
+    "parse_firefox_history": {
+        "caveats": [
+            "Firefox history is in places.sqlite — the moz_places table contains all visited URLs.",
+            "Private browsing mode visits are never stored.",
+            "Firefox profile names are random — search all profiles under the Profiles directory.",
+        ],
+        "advisories": [
+            "visit_count > 1 means the user repeatedly visited — it does not prove intentional use.",
+        ],
+        "corroboration": [
+            "Cross-reference with parse_chrome_history if both browsers are present.",
+            "Run lookup_domain_reputation on suspicious domains.",
+        ],
+    },
+
+    "parse_chrome_extensions": {
+        "caveats": [
+            "Extension IDs are 32-character hashes — map them to names via the Chrome Web Store.",
+            "Malicious extensions may have legitimate-looking names — check the permissions manifest.",
+        ],
+        "advisories": [
+            "An extension with permissions for 'all URLs' + 'storage' + 'nativeMessaging' is a high-risk combination.",
+        ],
+        "corroboration": [
+            "Cross-reference extension install dates with parse_event_logs logon sessions.",
+            "Search extension IDs against lookup_hash_reputation or external threat intel.",
+        ],
+    },
+
+    "run_hindsight": {
+        "caveats": [
+            "Hindsight requires the Chrome profile directory to be accessible — copy from evidence mount first.",
+            "Hindsight output covers: history, downloads, cookies, cache, extensions, and login data (hashed).",
+        ],
+        "advisories": [
+            "Hindsight integrates multiple Chrome artifact sources — treat it as a starting point, not a final report.",
+        ],
+        "corroboration": [
+            "Follow up suspicious URLs with lookup_domain_reputation.",
+            "Cross-reference download paths with parse_mft for file system timeline correlation.",
+        ],
+    },
+
+    # ── Email artifact tools ──────────────────────────────────────────────────
+
+    "parse_pst_ost": {
+        "caveats": [
+            "pffexport must process the entire PST/OST file before output is available — may take minutes for large files.",
+            "OST files require the associated Exchange account to be accessible for decryption in some cases.",
+        ],
+        "advisories": [
+            "Email timestamps can be spoofed by the sender — only trust internal server-added timestamps.",
+        ],
+        "corroboration": [
+            "Run analyze_email_headers on suspicious emails to verify routing and authentication.",
+            "Cross-reference attachment filenames with parse_mft for disk evidence.",
+        ],
+    },
+
+    "analyze_email_headers": {
+        "caveats": [
+            "Received headers are added by each mail server — the oldest (bottom) Received header is most trustworthy.",
+            "From: and Reply-To: fields can be trivially spoofed without DMARC enforcement.",
+            "SPF/DKIM/DMARC results in Authentication-Results are added by the RECEIVING mail server.",
+        ],
+        "advisories": [
+            "SPF PASS does not prove the email is legitimate — it only proves it came from an authorized server.",
+            "A DMARC FAIL with a forged From: address is strong evidence of phishing (T1566.001).",
+        ],
+        "corroboration": [
+            "Run lookup_domain_reputation on the sending domain.",
+            "Cross-reference recipient names with case subject identities.",
+        ],
+    },
+
+    # ── Cloud artifact tools ──────────────────────────────────────────────────
+
+    "parse_dropbox_logs": {
+        "caveats": [
+            "Dropbox sync_history.db only retains a limited number of sync events — older events are pruned.",
+            "sync_history.db schema varies between Dropbox client versions.",
+            "Deleted files appear as sync events but the deleted content may not be recoverable from local artifacts.",
+        ],
+        "advisories": [
+            "A sync event proves the file was synced, not necessarily that it was READ by an attacker.",
+            "Correlation with logon sessions is required before asserting intentional exfiltration.",
+        ],
+        "corroboration": [
+            "Cross-reference sync timestamps with parse_event_logs logon sessions (Event 4624).",
+            "Run parse_lnk_files to confirm the user accessed the Dropbox synced files.",
+        ],
+    },
+
+    "parse_onedrive_logs": {
+        "caveats": [
+            "ODL binary log files require string extraction — structured parsing is limited without the official SDK.",
+            "SyncDiagnostics.log retention varies — may be 7-30 days depending on client version.",
+        ],
+        "advisories": [
+            "OneDrive sync activity for O365 accounts is expected — only flag files with sensitive names or unusual volumes.",
+        ],
+        "corroboration": [
+            "Cross-reference file names in ODL entries with parse_mft for creation timestamps.",
+            "Run parse_event_logs for Event 4688 (process creation) showing OneDrive.exe command lines.",
+        ],
+    },
+
+    "parse_teams_artifacts": {
+        "caveats": [
+            "Teams LevelDB (IndexedDB) files are binary — string extraction is heuristic, not structured.",
+            "Teams chat content in IndexedDB is not full-text — only recent messages are cached locally.",
+        ],
+        "advisories": [
+            "Teams file sharing happens via SharePoint/OneDrive — local Teams artifacts may not capture all transfers.",
+        ],
+        "corroboration": [
+            "Cross-reference account email addresses with parse_event_logs logon identities.",
+            "Run parse_onedrive_logs to find files shared via Teams (stored in SharePoint/OneDrive).",
+        ],
+    },
+
+    # ── Registry extended tools ───────────────────────────────────────────────
+
+    "parse_shellbags": {
+        "caveats": [
+            "Shellbags persist even after the folder is deleted — they prove a folder WAS accessed, not that it currently exists.",
+            "Shellbag timestamps reflect the last time the user OPENED the folder via Explorer, not created it.",
+            "Network paths in shellbags (\\\\server\\share) can indicate lateral movement to mapped shares.",
+        ],
+        "advisories": [
+            "Shellbag analysis requires both NTUSER.DAT (user hive) and UsrClass.dat for complete coverage.",
+            "External drive paths in shellbags (D:\\, E:\\) indicate USB/external media access.",
+        ],
+        "corroboration": [
+            "Cross-reference shellbag paths with parse_lnk_files and parse_jump_lists.",
+            "Run parse_mft to check if files from the accessed folders existed on disk.",
+        ],
+    },
+
+    "parse_bam_dam": {
+        "caveats": [
+            "BAM (Background Activity Monitor) tracks executable execution since Windows 10 1803.",
+            "BAM entries reset when the system restarts — they only cover the current boot cycle.",
+            "DAM (Desktop Activity Moderator) tracks execution for suspended (modern/UWP) apps.",
+        ],
+        "advisories": [
+            "BAM LastExecutionTime is reliable for the current boot session only.",
+            "BAM proves execution with timestamp — stronger than shimcache on its own.",
+        ],
+        "corroboration": [
+            "Cross-reference BAM entries with parse_prefetch for execution count.",
+            "Run parse_amcache to get SHA1 hash of executables seen in BAM.",
+        ],
+    },
+
+    "parse_sam_hive": {
+        "caveats": [
+            "SAM hive stores local account password hashes (LM/NTLM) — these can be cracked offline.",
+            "SAM hive is locked while Windows is running — requires offline access via memory or disk forensics.",
+            "Account creation/deletion timestamps in SAM are UTC.",
+        ],
+        "advisories": [
+            "A recently-created local account with admin privileges is a strong lateral movement indicator (T1136.001).",
+            "Password hash extraction from SAM is also possible via Volatility get_hashdump.",
+        ],
+        "corroboration": [
+            "Cross-reference account creation timestamps with parse_event_logs Event 4720 (user created).",
+            "Run get_hashdump from Volatility for live memory extraction.",
+        ],
+    },
+
+    # ── Volatility advanced tools ─────────────────────────────────────────────
+
+    "get_hashdump": {
+        "caveats": [
+            "Hashdump extracts password hashes from the SAM hive in memory — requires SYSTEM privileges.",
+            "LM hashes should be empty (aad3b435...) on modern Windows — a populated LM hash is anachronistic.",
+            "Hashes should NEVER be included verbatim in investigation reports — use partial hashes only.",
+        ],
+        "advisories": [
+            "Extracted NTLM hashes can be used for pass-the-hash attacks — handle with care.",
+            "Hash extraction is T1003.002 — the technique itself is a credential access finding if done by malware.",
+        ],
+        "corroboration": [
+            "Cross-reference accounts with parse_sam_hive for account creation dates.",
+            "Run get_lsadump to find cached credentials from domain accounts.",
+        ],
+    },
+
+    "get_lsadump": {
+        "caveats": [
+            "LSA secrets may include service account credentials, auto-logon passwords, and domain cached credentials.",
+            "LSA dump is only available if the SECURITY hive is accessible and not encrypted by DPAPI.",
+        ],
+        "advisories": [
+            "LSA secret exposure is T1003.004 — Credentials from Password Stores.",
+            "Any plaintext credentials in LSA secrets must be treated as compromised.",
+        ],
+        "corroboration": [
+            "Cross-reference service account names with get_running_services.",
+            "Run parse_event_logs for Event 4625 (failed logon) using extracted credentials.",
+        ],
+    },
+
+    "get_modules": {
+        "caveats": [
+            "Modules lists loaded kernel drivers from PsLoadedModuleList — DKOM-hidden modules will not appear.",
+            "Unsigned drivers are suspicious but not always malicious — kernel mode drivers may be unsigned.",
+        ],
+        "advisories": [
+            "An unsigned driver from a non-standard path is a high-confidence rootkit indicator.",
+        ],
+        "corroboration": [
+            "Cross-reference suspicious drivers with get_driverirp to check for hooked IRP handlers.",
+            "Run calculate_file_hashes on extracted driver files and lookup_hash_reputation.",
+        ],
+    },
+
+    "get_driverirp": {
+        "caveats": [
+            "IRP hooks that point outside the driver's normal address range indicate rootkit hooking.",
+            "Some legitimate security products hook IRPs — AV/EDR drivers commonly do this.",
+        ],
+        "advisories": [
+            "IRP hooks combined with a hidden module (get_modules) is a high-confidence rootkit finding.",
+        ],
+        "corroboration": [
+            "Cross-reference the hooking module address with get_modules to identify the driver.",
+            "Run scan_memory_with_yara with rootkit rule sets on the image.",
+        ],
+    },
+
+    "dump_process": {
+        "caveats": [
+            "dumpfiles recreates the PE from memory — the dump may differ from the on-disk binary if patched in memory.",
+            "Memory-resident payloads (shellcode, reflective DLLs) may not produce valid PE dumps.",
+        ],
+        "advisories": [
+            "Dumped processes are evidence — treat them as sensitive forensic artifacts.",
+        ],
+        "corroboration": [
+            "Run scan_file_with_yara on the dumped PE to identify malware family.",
+            "Run calculate_file_hashes and lookup_hash_reputation on the dump.",
+            "Run detect_capabilities_capa on the dump for MITRE-mapped capability analysis.",
+        ],
+    },
+
+    # ── File carving tools ────────────────────────────────────────────────────
+
+    "run_bulk_extractor": {
+        "caveats": [
+            "bulk_extractor finds patterns in raw bytes — it does NOT respect file system boundaries.",
+            "Email and URL extractors will match fragments in deleted file space and slack space — these may be historical.",
+            "Credit card number (CCN) detection has a high false-positive rate on random binary data.",
+        ],
+        "advisories": [
+            "URLs found by bulk_extractor may be from temporary files, browser cache, or deleted data.",
+            "Treat bulk_extractor IOCs as leads for further investigation, not confirmed activity.",
+        ],
+        "corroboration": [
+            "Cross-reference extracted email addresses with parse_pst_ost for email client confirmation.",
+            "Cross-reference extracted URLs with parse_chrome_history for browser visit confirmation.",
+        ],
+    },
+
+    "carve_files_foremost": {
+        "caveats": [
+            "foremost recovery rate depends on overwrite — files deleted long ago may be partially overwritten.",
+            "Carved files have NO metadata — no original filename, creation time, or path.",
+            "JPEG/PNG recovery is reliable; Word/Excel/ZIP recovery is approximate based on header/footer patterns.",
+        ],
+        "advisories": [
+            "A recovered file proves it EXISTED on the media — it does not prove WHO created or accessed it.",
+        ],
+        "corroboration": [
+            "Run analyze_with_exiftool on recovered files to extract embedded metadata.",
+            "Run get_file_type on carved files to verify the magic bytes match the claimed extension.",
+        ],
+    },
+
+    "detect_capabilities_capa": {
+        "caveats": [
+            "capa uses static code analysis — packed or obfuscated malware may evade capability detection.",
+            "capa requires the file to be a PE executable — shellcode analysis requires a different invocation.",
+            "Some capabilities (e.g. 'allocate memory') are present in legitimate software.",
+        ],
+        "advisories": [
+            "A capa MITRE mapping is a static analysis finding — dynamic behavior may differ from detected capabilities.",
+            "Multiple high-severity capabilities (injection + network + anti-analysis) together are a strong malware indicator.",
+        ],
+        "corroboration": [
+            "Run extract_floss_strings to decode any obfuscated strings missed by static analysis.",
+            "Submit the file hash via lookup_hash_reputation for VirusTotal cross-reference.",
+        ],
+    },
+
+    "get_file_type": {
+        "caveats": [
+            "Magic byte detection identifies the file header — a partially-overwritten file may have a misidentified header.",
+            "Polyglot files are valid in multiple formats simultaneously — both detections may be correct.",
+        ],
+        "advisories": [
+            "Extension mismatch (masquerade_suspected=True) is a strong T1036.007 indicator but requires the file to be executable to be actionable.",
+        ],
+        "corroboration": [
+            "Run analyze_with_exiftool to confirm file type via additional metadata.",
+            "Run scan_file_with_yara against executable rules to check for malware signatures.",
+        ],
+    },
+
+    # ── Linux forensics tools ─────────────────────────────────────────────────
+
+    "get_linux_processes": {
+        "caveats": [
+            "linux.pslist reads the task_struct doubly-linked list — DKOM-hidden processes will NOT appear.",
+            "Shell interpreter processes (bash, python) may be legitimate system processes — check parent context.",
+        ],
+        "advisories": [
+            "A reverse shell process (nc, socat, bash -i) in process list is a high-confidence indicator of compromise.",
+        ],
+        "corroboration": [
+            "Run get_linux_modules to check for kernel-level rootkit hiding processes.",
+            "Run get_linux_network to check open sockets for suspicious processes.",
+        ],
+    },
+
+    "get_linux_bash_history": {
+        "caveats": [
+            "Bash history in memory covers only the current session — prior sessions require ~/.bash_history on disk.",
+            "Attackers commonly unset HISTFILE or set HISTSIZE=0 — absence of history is suspicious.",
+        ],
+        "advisories": [
+            "wget/curl commands downloading from external IPs are T1105 (Ingress Tool Transfer) indicators.",
+        ],
+        "corroboration": [
+            "Cross-reference commands with parse_syslog for corresponding system activity.",
+            "Run parse_linux_crontab to check if any commands created persistence.",
+        ],
+    },
+
+    "get_linux_modules": {
+        "caveats": [
+            "linux.check_modules compares /proc/modules list with kernel module list — requires correct kernel profile.",
+            "Legitimate security modules (SELinux, AppArmor, auditd) may appear in module checks.",
+        ],
+        "advisories": [
+            "A hidden kernel module is a definitive rootkit indicator (T1014).",
+        ],
+        "corroboration": [
+            "Run get_linux_syscall to check for syscall table hooks by the hidden module.",
+        ],
+    },
+
+    "parse_syslog": {
+        "caveats": [
+            "Syslog rotation may have removed logs from the incident time window.",
+            "Log injection attacks can introduce false entries — verify high-confidence findings against kernel log.",
+        ],
+        "advisories": [
+            "Mass SSH failed authentication from a single IP requires 3+ failures before attributing T1110 (Brute Force).",
+        ],
+        "corroboration": [
+            "Cross-reference SSH logon success with get_linux_processes to confirm attacker session.",
+            "Run parse_linux_crontab to check if attacker added persistence after gaining access.",
+        ],
+    },
+
+    # ── Anti-forensics detection tools ───────────────────────────────────────
+
+    "detect_timestomping": {
+        "caveats": [
+            "Some legitimate software (installers, backup tools) set $SI timestamps deliberately — not all deltas are malicious.",
+            "A $SI vs $FN delta of exactly 0 seconds is also suspicious — tools that zero both timestamps are known.",
+        ],
+        "advisories": [
+            "A $SI timestamp BEFORE the OS installation date strongly suggests timestomping.",
+            "Round-number timestamps (2020-01-01 00:00:00) indicate attacker use of default timestomping values.",
+        ],
+        "corroboration": [
+            "Run parse_usn_journal to find the real file creation timestamp from the journal record.",
+            "Cross-reference the file path with parse_prefetch to confirm when it actually ran.",
+        ],
+    },
+
+    "detect_log_wiping": {
+        "caveats": [
+            "A zero-byte EVTX file is suspicious, but may also result from a crash during log rotation.",
+            "python-evtx is required for full event parsing — without it, only file size checks are performed.",
+        ],
+        "advisories": [
+            "Event 1102 (Security log cleared) is one of the strongest anti-forensics indicators available.",
+            "The absence of event logs for a time period when the system was running is itself evidence.",
+        ],
+        "corroboration": [
+            "Run detect_event_log_tampering to check for audit policy changes that preceded the clearing.",
+            "Use detect_contradictions LOG_WIPE_INDICATOR for record-ID gap analysis.",
+        ],
+    },
+
+    "detect_secure_deletion": {
+        "caveats": [
+            "Prefetch-based detection only covers the Windows Prefetch directory — enabled only on non-server Windows.",
+            "Some legitimate IT management tools (BleachBit for privacy) may appear — context matters.",
+        ],
+        "advisories": [
+            "SDelete and similar tools overwrite file content — file content recovery is not possible after use.",
+            "Detection of secure deletion tools is T1070.004 evidence even if the original files are gone.",
+        ],
+        "corroboration": [
+            "Cross-reference execution timestamps with parse_event_logs logon sessions.",
+            "Run detect_log_wiping to check if log clearing accompanied the secure deletion.",
+        ],
+    },
+
+    # ── Document analysis tools ───────────────────────────────────────────────
+
+    "analyze_pdf_doc": {
+        "caveats": [
+            "pdfid counts keyword occurrences but does not decode embedded content — /JavaScript count=1 is significant.",
+            "PDFs with /XFA are dynamically rendered — static analysis may miss active content.",
+        ],
+        "advisories": [
+            "A PDF with /JavaScript + /OpenAction is a high-confidence malicious document (T1566.001).",
+            "CVE-2019-0797 and similar Acrobat vulnerabilities are triggered via /Launch actions.",
+        ],
+        "corroboration": [
+            "Cross-reference the document's received time with parse_event_logs logon sessions.",
+            "Run scan_file_with_yara with exploit document rules on the PDF.",
+        ],
+    },
+
+    "analyze_ole_doc": {
+        "caveats": [
+            "olevba may produce false positives for macro-enabled templates that contain no harmful code.",
+            "Heavily obfuscated macros may score LOW risk due to encoding — review decoded strings manually.",
+        ],
+        "advisories": [
+            "AutoOpen + Shell + URLDownloadToFile combination is definitive malicious macro evidence.",
+            "VBA stomping (hollow macros) may hide true code — olevba may show an empty macro.",
+        ],
+        "corroboration": [
+            "Extract the SHA256 of the document and run lookup_hash_reputation.",
+            "Cross-reference document metadata (author, company) with suspect identities.",
+        ],
+    },
+
+    "detect_dde_payload": {
+        "caveats": [
+            "DDE detection is regex-based — highly obfuscated DDE fields may evade pattern matching.",
+            "Modern Office (2016+) with security updates blocks DDE by default — check target Office version.",
+        ],
+        "advisories": [
+            "A DDE field containing =cmd|'/c powershell' is definitive T1559.002 evidence.",
+        ],
+        "corroboration": [
+            "Run analyze_with_exiftool on the document to find the author and last-modified identity.",
+            "Cross-reference DDE command strings with get_command_history or parse_event_logs 4688.",
+        ],
+    },
+
+    # ── Network extended tools ────────────────────────────────────────────────
+
+    "parse_zeek_logs": {
+        "caveats": [
+            "Zeek conn.log records one entry per connection — bidirectional bytes are tracked separately.",
+            "DNS log captures queries the Zeek sensor saw — encrypted DNS (DoH/DoT) will not appear.",
+            "Zeek file extraction requires file analysis framework to be enabled in the Zeek configuration.",
+        ],
+        "advisories": [
+            "DNS queries with subdomain length > 50 characters are a strong DNS tunneling indicator (T1071.004).",
+            "A POST to an external IP without a matching DNS resolution is a hardcoded C2 indicator.",
+        ],
+        "corroboration": [
+            "Run lookup_domain_reputation on domains with high query volumes.",
+            "Cross-reference destination IPs with lookup_hash_reputation via passive DNS.",
+        ],
+    },
+
+    "parse_iis_logs": {
+        "caveats": [
+            "IIS logs record only server-side activity — client actions (JS execution) are not logged.",
+            "W3C format field order depends on IIS configuration — the #Fields header defines the order.",
+            "URL encoding (%2e, %2f) must be decoded before applying detection patterns.",
+        ],
+        "advisories": [
+            "A POST request to a .aspx file with HTTP 200 response from an external IP is a high-confidence web shell indicator.",
+        ],
+        "corroboration": [
+            "Cross-reference client IPs with lookup_domain_reputation.",
+            "Run parse_event_logs (System/Security) to confirm if IIS service was installed/modified.",
+        ],
+    },
+
+    "parse_firewall_logs": {
+        "caveats": [
+            "Firewall logs record allowed/blocked connections — they do NOT capture payload content.",
+            "A single blocked connection does not indicate a port scan — require 10+ unique ports from the same source.",
+        ],
+        "advisories": [
+            "Outbound connections to non-standard ports (not 80/443/53) that were ALLOWED are worth investigating.",
+        ],
+        "corroboration": [
+            "Run lookup_domain_reputation or lookup_hash_reputation on destination IPs.",
+            "Cross-reference allowed connection times with parse_event_logs logon sessions.",
+        ],
+    },
+
+    # ── Disk extended tools ───────────────────────────────────────────────────
+
+    "verify_image_integrity": {
+        "caveats": [
+            "Computing SHA256 of a large image (>100 GB) takes several minutes — be patient.",
+            "Hash mismatch may indicate: unintentional modification, write blocker failure, or deliberate tampering.",
+        ],
+        "advisories": [
+            "A hash mismatch (integrity_verified=False) is a critical chain-of-custody failure — document immediately.",
+            "Never proceed with analysis on a tampered image without supervisor notification.",
+        ],
+        "corroboration": [
+            "Re-acquire the evidence if hash mismatch is confirmed.",
+            "Compare against the acquisition report hash — the hash on the acquisition machine is authoritative.",
+        ],
+    },
+
+    "analyze_slack_space": {
+        "caveats": [
+            "Slack space extraction requires correct partition offset — use get_partition_table first.",
+            "Most slack space contains random data from previous file allocations — careful string filtering is required.",
+        ],
+        "advisories": [
+            "Readable IOC strings (IPs, URLs) in slack space may be from DELETED files, not current malware.",
+        ],
+        "corroboration": [
+            "Cross-reference IPs in slack space with get_network_connections from memory.",
+            "Run carve_files_foremost to recover the deleted files that may have contained these strings.",
+        ],
+    },
+
+    # ── Threat intel extended tools ───────────────────────────────────────────
+
+    "lookup_hash_reputation": {
+        "caveats": [
+            "VirusTotal free API is rate-limited to 4 requests/minute — batch lookups may be throttled.",
+            "A detection ratio of 0/70 does NOT prove a file is clean — it may be a novel sample.",
+            "VirusTotal caches results — a recently submitted sample may show old results.",
+        ],
+        "advisories": [
+            "Detection ratio > 5/70 is suspicious. > 20/70 is strong malware evidence.",
+            "Known malware families (Emotet, Cobalt Strike) will have high detection ratios and known names.",
+        ],
+        "corroboration": [
+            "Cross-reference the file hash with parse_amcache to confirm it ran on the system.",
+            "Run detect_capabilities_capa on the file for MITRE-mapped behavior analysis.",
+        ],
+    },
+
+    "search_mitre_technique": {
+        "caveats": [
+            "MITRE ATT&CK descriptions are generic — apply them to the specific evidence context.",
+            "RAG results reflect the seeded knowledge base — run rag/ingest/run_all.py to ensure it is current.",
+        ],
+        "advisories": [
+            "ATT&CK technique membership does not imply the technique is confirmed — evidence must be cited.",
+        ],
+        "corroboration": [
+            "For each ATT&CK technique, identify the specific tool call that provides evidence for it.",
+            "Cross-reference with adversarial_review to ensure the attribution is well-supported.",
+        ],
+    },
+
+    "calculate_fuzzy_hash_similarity": {
+        "caveats": [
+            "ssdeep similarity is based on context-triggered piecewise hashing — file size affects reliability.",
+            "Small files (< 4096 bytes) produce unreliable ssdeep scores — use SHA256 for exact matching instead.",
+        ],
+        "advisories": [
+            "A similarity score >= 50 is strong evidence of malware variant relationship.",
+        ],
+        "corroboration": [
+            "Cross-reference both files with lookup_hash_reputation for independent VirusTotal verdict.",
+            "Run detect_capabilities_capa on both files to compare capability profiles.",
+        ],
+    },
 }
 
 

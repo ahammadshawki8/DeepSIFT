@@ -55,6 +55,7 @@ except Exception as e:
 # ── Register all tool modules ──────────────────────────────────────────────
 from mcp_server.tools.volatility import register_volatility_tools
 from mcp_server.tools.volatility_extended import register_volatility_extended_tools
+from mcp_server.tools.volatility_advanced import register_volatility_advanced_tools
 from mcp_server.tools.log2timeline import register_log2timeline_tools
 from mcp_server.tools.sleuthkit import register_sleuthkit_tools
 from mcp_server.tools.yara_tools import register_yara_tools
@@ -63,9 +64,21 @@ from mcp_server.tools.hayabusa import register_hayabusa_tools
 from mcp_server.tools.file_analysis import register_file_analysis_tools
 from mcp_server.tools.network_analysis import register_network_analysis_tools
 from mcp_server.tools.correlation import register_correlation_tools
+from mcp_server.tools.browser_artifacts import register_browser_artifact_tools
+from mcp_server.tools.email_artifacts import register_email_artifact_tools
+from mcp_server.tools.cloud_artifacts import register_cloud_artifact_tools
+from mcp_server.tools.registry_extended import register_registry_extended_tools
+from mcp_server.tools.file_carving import register_file_carving_tools
+from mcp_server.tools.linux_forensics import register_linux_forensics_tools
+from mcp_server.tools.anti_forensics import register_anti_forensics_tools
+from mcp_server.tools.document_analysis import register_document_analysis_tools
+from mcp_server.tools.network_extended import register_network_extended_tools
+from mcp_server.tools.disk_extended import register_disk_extended_tools
+from mcp_server.tools.threat_intel_extended import register_threat_intel_extended_tools
 
 register_volatility_tools(mcp, rag)
 register_volatility_extended_tools(mcp, rag)
+register_volatility_advanced_tools(mcp, rag)
 register_log2timeline_tools(mcp, rag)
 register_sleuthkit_tools(mcp, rag)
 register_yara_tools(mcp, rag)
@@ -74,6 +87,17 @@ register_hayabusa_tools(mcp, rag)
 register_file_analysis_tools(mcp, rag)
 register_network_analysis_tools(mcp, rag)
 register_correlation_tools(mcp, rag)
+register_browser_artifact_tools(mcp, rag)
+register_email_artifact_tools(mcp, rag)
+register_cloud_artifact_tools(mcp, rag)
+register_registry_extended_tools(mcp, rag)
+register_file_carving_tools(mcp, rag)
+register_linux_forensics_tools(mcp, rag)
+register_anti_forensics_tools(mcp, rag)
+register_document_analysis_tools(mcp, rag)
+register_network_extended_tools(mcp, rag)
+register_disk_extended_tools(mcp, rag)
+register_threat_intel_extended_tools(mcp, rag)
 
 try:
     tool_count = len(mcp.list_tools())
