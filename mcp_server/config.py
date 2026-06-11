@@ -13,6 +13,7 @@ MMLS_CMD = os.getenv("MMLS_CMD", "mmls")
 ICAT_CMD = os.getenv("ICAT_CMD", "icat")
 YARA_CMD = os.getenv("YARA_CMD", "yara")
 EZ_TOOLS_DIR = Path(os.getenv("EZ_TOOLS_DIR", "/opt/zimmermantools"))
+HAYABUSA_CMD = os.getenv("HAYABUSA_CMD", "hayabusa").split()
 
 # Runtime directories
 EXPORTS_DIR = Path(os.getenv("EXPORTS_DIR", "./exports"))

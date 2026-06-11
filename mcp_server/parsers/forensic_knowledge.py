@@ -498,6 +498,400 @@ FORENSIC_KNOWLEDGE: dict[str, dict] = {
             "Document in the finish_analysis interpretation which alternative hypotheses were ruled out.",
         ],
     },
+
+    "detect_contradictions": {
+        "caveats": [
+            "Contradiction detection requires audit_ids from the current session — loading exports from prior sessions may fail.",
+            "PREFETCH_WITHOUT_SHIMCACHE false positives can occur when Shimcache was parsed from a different drive or partial hive.",
+            "LOG_WIPE_INDICATOR requires a continuous event log — a fresh install or log rotation produces the same gap.",
+        ],
+        "advisories": [
+            "UNRESOLVED_CONTRADICTION findings significantly raise attack confidence — include ALL in finish_analysis.",
+            "A DKOM_HIDDEN_PROCESS contradiction is among the highest-confidence rootkit indicators available without a kernel debugger.",
+            "Do NOT dismiss contradictions as artifacts without at least one corroborating source.",
+        ],
+        "corroboration": [
+            "For DKOM_HIDDEN_PROCESS: cross-reference psscan-only PIDs with get_network_connections.",
+            "For LOG_WIPE_INDICATOR: look for EventID 1102 (Security log cleared) or 104 (System log cleared) at the gap boundary.",
+            "For PREFETCH_WITHOUT_SHIMCACHE: run parse_mft to check if the file path exists on disk.",
+            "For HIDDEN_SERVICE: parse_registry_hive on SYSTEM hive for the service key to confirm deletion.",
+        ],
+    },
+
+    # ── Hayabusa / Sigma ──────────────────────────────────────────────────────
+
+    "parse_hayabusa": {
+        "caveats": [
+            "Hayabusa applies 3,700+ Sigma rules to Windows event logs — expect some false positives, especially at 'low' severity.",
+            "Rule accuracy varies by community source — Hayabusa built-in rules are higher quality than all community rules.",
+            "Hayabusa requires the evtx directory to contain .evtx files — mounted volume or extracted evidence required.",
+            "Timestamps in Hayabusa output are UTC — convert for local timezone correlation.",
+        ],
+        "advisories": [
+            "Critical and High severity alerts are reliable — Medium and Low alerts require corroboration before attribution.",
+            "A Hayabusa alert alone does NOT constitute proof of an ATT&CK technique — it identifies candidate events.",
+            "Do NOT attribute a MITRE technique solely from a low-severity Hayabusa rule match.",
+        ],
+        "corroboration": [
+            "For Critical/High alerts: confirm the specific EventID and data in the raw event via parse_event_logs.",
+            "Cross-reference Hayabusa MITRE tags with findings from memory tools (malfind, netscan) for convergence.",
+            "For credential access alerts: run scan_hidden_processes and get_loaded_dlls on lsass.exe.",
+            "For lateral movement alerts: correlate with get_network_connections external IPs.",
+        ],
+    },
+
+    "list_hayabusa_rules": {
+        "caveats": [
+            "Rule count reflects installed Hayabusa version — update hayabusa to get the latest Sigma rule set.",
+        ],
+        "advisories": [],
+        "corroboration": [
+            "Use parse_hayabusa with min_severity='critical' first, then broaden to 'medium' if needed.",
+        ],
+    },
+
+    # ── Volatility extended tools ─────────────────────────────────────────────
+
+    "get_privileges": {
+        "caveats": [
+            "Privilege listing reflects the current token state — not historical state before privilege manipulation.",
+            "SeDebugPrivilege enabled for non-system processes is strongly suspicious but not unique to malware.",
+            "System processes (lsass, services, winlogon) legitimately hold elevated privileges.",
+        ],
+        "advisories": [
+            "SeDebugPrivilege + SeImpersonatePrivilege on a non-system process (e.g. cmd.exe, powershell.exe) "
+            "is a high-confidence indicator of privilege escalation (T1134).",
+            "Do NOT flag svchost.exe or lsass.exe — their privileges are expected.",
+        ],
+        "corroboration": [
+            "Cross-reference the PID with get_process_list parent-child context.",
+            "Run get_command_history on the PID to understand the argument context.",
+            "Check parse_event_logs for Event 4672 (special logon with SeDebugPrivilege assignment).",
+        ],
+    },
+
+    "get_mutexes": {
+        "caveats": [
+            "Mutex names are set by application developers — all-caps GUIDs are common in both malware and legitimate software.",
+            "A mutex in one process does not confirm that specific process is malicious — shared mutexes exist.",
+            "Mutex scanning via mutantscan can produce stale entries from already-exited processes.",
+        ],
+        "advisories": [
+            "Known malware mutex signatures exist for many RAT families — compare against threat intel before attributing.",
+            "Do NOT classify a mutex as malicious based on name alone without additional corroboration.",
+        ],
+        "corroboration": [
+            "Search known-malware mutex lists via RAG or external threat intel for the exact mutex name.",
+            "Cross-reference the owning PID with find_injected_code and get_network_connections.",
+        ],
+    },
+
+    "get_env_vars": {
+        "caveats": [
+            "Environment variables are read from the PEB — they can be manipulated after process creation.",
+            "TEMP/TMP paths pointing to unusual locations may indicate sandboxed or modified environments.",
+        ],
+        "advisories": [
+            "Suspicious TEMP paths or PATH hijacking attempts are indicators but require corroboration.",
+            "Do NOT conclude DLL hijacking (T1574) solely from an unusual PATH — confirm a DLL was loaded from that path.",
+        ],
+        "corroboration": [
+            "Run get_loaded_dlls on the PID to check if DLLs were loaded from the suspicious PATH location.",
+            "Cross-reference COMPUTERNAME / USERNAME with expected system identity.",
+        ],
+    },
+
+    "get_vad_info": {
+        "caveats": [
+            "VAD (Virtual Address Descriptor) tree shows all memory regions — most RWX regions are from JIT engines.",
+            "Private non-file-backed RWX regions are suspicious but browsers and .NET produce many of these legitimately.",
+            "VAD region sizes and addresses differ from process to process — absolute addresses are not stable.",
+        ],
+        "advisories": [
+            "A large private RWX region with no file backing and high entropy is the strongest single malfind indicator.",
+            "Do NOT flag every private RWX region — focus on those with PE magic bytes or entropy > 7.0.",
+        ],
+        "corroboration": [
+            "Run find_injected_code to check for PE headers in flagged VAD regions.",
+            "Run detect_packer on any extracted region files for entropy confirmation.",
+        ],
+    },
+
+    "get_ldrmodules": {
+        "caveats": [
+            "ldrmodules compares three PEB lists: InLoad, InMem, InInit. Missing from all three = reflectively loaded.",
+            "Some legitimate modules (e.g. NTDLL entry points, mapped executables) may be absent from InInit.",
+            "This plugin produces false positives on some .NET assemblies and JIT-compiled modules.",
+        ],
+        "advisories": [
+            "A DLL absent from ALL THREE lists is the strongest indicator of reflective DLL injection (T1055.001).",
+            "Missing from InInit only is weak — focus on missing from InLoad + InMem simultaneously.",
+        ],
+        "corroboration": [
+            "Cross-reference the mapped address with get_vad_info to check the region permissions.",
+            "Run get_loaded_dlls on the same PID for the normal DLL list as comparison.",
+        ],
+    },
+
+    "get_ssdt": {
+        "caveats": [
+            "SSDT hooking is a classic rootkit technique that AV/EDR products also use.",
+            "Any security product (AV, EDR, DLP) can legitimately hook the SSDT.",
+            "Virtual machines (VMware, VirtualBox) may show SSDT hooks from hypervisor integration drivers.",
+        ],
+        "advisories": [
+            "SSDT hooks from ntoskrnl/win32k are EXPECTED. Only flag hooks from non-standard driver addresses.",
+            "Do NOT conclude rootkit presence solely from SSDT hooks without identifying the hooking driver.",
+        ],
+        "corroboration": [
+            "Identify the hooking module with get_callbacks and get_devicetree.",
+            "Check if the hooking driver is a known AV/EDR product before attributing to malware.",
+        ],
+    },
+
+    "get_callbacks": {
+        "caveats": [
+            "Kernel callbacks are used by AV/EDR products extensively — most callbacks are legitimate.",
+            "Callback addresses must be resolved to their owning driver — raw addresses are not actionable.",
+        ],
+        "advisories": [
+            "A callback from an unsigned or unknown driver is the key indicator — not the presence of callbacks per se.",
+        ],
+        "corroboration": [
+            "Cross-reference callback driver names with get_devicetree for the driver load chain.",
+            "Check parse_event_logs for driver load events (Event 6) at boot time.",
+        ],
+    },
+
+    "get_filescan": {
+        "caveats": [
+            "filescan finds FILE_OBJECT structures in pool memory — includes open handles from all processes.",
+            "Paths are reconstructed from memory — partial paths or corruption may produce incomplete paths.",
+            "Many files appear here from Windows internals (pagefile.sys, registry hives, log files).",
+        ],
+        "advisories": [
+            "Focus on executable paths in user-writable locations (Temp, AppData, Downloads, Public).",
+            "A file open handle does NOT mean the file was read, written, or executed.",
+        ],
+        "corroboration": [
+            "Cross-reference suspicious paths with parse_shimcache and parse_prefetch for execution evidence.",
+            "Extract the file via extract_file (Sleuth Kit) and run scan_file_with_yara.",
+        ],
+    },
+
+    "get_timeliner": {
+        "caveats": [
+            "timeliner produces events from process, DLL, registry, and file object timestamps in memory.",
+            "Timestamps from kernel objects reflect the OS clock at the time — subject to clock skew.",
+            "Very long output — this tool returns only the top 200 events sorted by time.",
+        ],
+        "advisories": [
+            "Use this for approximate chronology only — verify key timestamps against more authoritative sources.",
+        ],
+        "corroboration": [
+            "Cross-reference memory timeliner events with disk-based filter_timeline for consistency.",
+            "Look for process creation times that precede the expected incident window.",
+        ],
+    },
+
+    "get_devicetree": {
+        "caveats": [
+            "Device tree reflects the kernel state at memory capture time — dynamically loaded drivers may appear.",
+            "Driver names in the device tree are internal kernel names, not necessarily the .sys filename.",
+        ],
+        "advisories": [
+            "Drivers with no recognizable name or manufacturer in unusual positions in the tree are suspicious.",
+            "Do NOT flag WdFilter (Windows Defender) or similar security product drivers.",
+        ],
+        "corroboration": [
+            "Cross-reference driver module names with get_callbacks for callback registrations.",
+            "Check get_ssdt for hooks registered by suspicious drivers found here.",
+        ],
+    },
+
+    # ── File analysis tools ───────────────────────────────────────────────────
+
+    "get_pe_metadata": {
+        "caveats": [
+            "pefile compile timestamp can be set to any value by the compiler or post-compilation — it is NOT reliable proof of creation date.",
+            "imphash matching requires the exact same import table — minor linker differences produce different hashes for the same malware family.",
+            "Digital signature absence does NOT prove malice — many legitimate tools are unsigned.",
+        ],
+        "advisories": [
+            "A compile timestamp in the future (past 2030) or before 1995 strongly indicates timestomping (T1070.006).",
+            "High-entropy sections (>7.0) are the single most reliable packing indicator — packed binaries evade AV.",
+            "Do NOT attribute malware based on imphash alone — check for confirmed malicious imports + unsigned status together.",
+        ],
+        "corroboration": [
+            "Run detect_packer to confirm packing before asserting T1027 (Obfuscated Files).",
+            "Submit the imphash to VirusTotal via lookup_ip_reputation for family attribution.",
+            "Cross-reference suspicious imports (VirtualAllocEx, WriteProcessMemory) with find_injected_code findings.",
+        ],
+    },
+
+    "extract_strings": {
+        "caveats": [
+            "String extraction is static — packed/encrypted binaries yield mostly garbage strings until unpacked.",
+            "base64 pattern matching produces false positives on binary data that happens to be base64-like.",
+            "URLs and IPs embedded as compile-time strings may be hardcoded C2, but may also be documentation or test code.",
+        ],
+        "advisories": [
+            "Embedded IP addresses in a packed or obfuscated binary strongly suggest C2 hardcoding.",
+            "Do NOT assert a URL is a C2 endpoint without corroborating with network connection data.",
+        ],
+        "corroboration": [
+            "Cross-reference extracted IPs with get_network_connections and lookup_ip_reputation.",
+            "If base64 strings are found, attempt decoding and re-extract strings from the decoded output.",
+            "Run detect_packer first — if packed, strings are unreliable until the binary is unpacked.",
+        ],
+    },
+
+    "detect_packer": {
+        "caveats": [
+            "Entropy analysis is a heuristic — legitimate encrypted archives (ZIP, 7z) also show high entropy.",
+            "UPX signature detection only catches unmodified UPX — custom-patched UPX will evade this check.",
+            "CLEAN verdict means no known signature was found — it does NOT mean the file is clean.",
+        ],
+        "advisories": [
+            "A PACKED verdict means the binary's static analysis is severely limited — focus on memory dumps.",
+            "Do NOT attempt YARA or AV scanning of a PACKED binary without first unpacking it.",
+        ],
+        "corroboration": [
+            "Run find_injected_code on any process running the packed binary — the unpacked payload appears in memory.",
+            "Run scan_memory_with_yara against the running process to detect the unpacked malware family.",
+        ],
+    },
+
+    # ── Network analysis tools ────────────────────────────────────────────────
+
+    "parse_pcap_summary": {
+        "caveats": [
+            "TShark conversation stats are aggregated — they do NOT show per-packet timing or content.",
+            "Bytes transferred includes both directions — split bytes_ab (outbound) from bytes_ba (inbound) for exfil assessment.",
+            "PCAP captures only what was on the monitored interface — encrypted (TLS) payloads appear as ciphertext.",
+        ],
+        "advisories": [
+            "Large outbound transfers (>1 MB) are suspicious only if to an unexpected external IP.",
+            "Cloud storage (OneDrive, Dropbox, GDrive) legitimately transfers large volumes — verify the IP ownership.",
+        ],
+        "corroboration": [
+            "Run extract_dns_queries to identify domains queried during large transfer windows.",
+            "Cross-reference top-talker IPs with lookup_ip_reputation.",
+            "Correlate transfer timestamps with parse_event_logs logon sessions.",
+        ],
+    },
+
+    "extract_dns_queries": {
+        "caveats": [
+            "DNS data is only available if DNS traffic was captured on the monitored interface.",
+            "DGA detection is heuristic — short random-looking domains exist in legitimate CDN and analytics services.",
+            "Long subdomain labels (>50 chars) may be from legitimate cloud services using base64-encoded routing labels.",
+        ],
+        "advisories": [
+            "A beaconing candidate (>30 queries to same domain) could be an auto-update check — verify the domain owner.",
+            "Do NOT attribute DNS tunnelling (T1071.004) without evidence of unusual query volume AND data in the label.",
+        ],
+        "corroboration": [
+            "Run lookup_ip_reputation on resolved IPs from suspicious domains.",
+            "Cross-reference beaconing domain query times with parse_event_logs logon sessions.",
+            "If DGA-style domains resolve to the same IP, run parse_pcap_summary for data volume to those IPs.",
+        ],
+    },
+
+    "parse_arp_cache": {
+        "caveats": [
+            "ARP cache data is derived from Volatility netstat — not a true ARP cache dump.",
+            "IPs observed this way reflect connections at memory capture time — prior lateral movement leaves no ARP trace.",
+        ],
+        "advisories": [
+            "Additional IPs not in the process list may indicate prior lateral movement — corroborate with event logs.",
+        ],
+        "corroboration": [
+            "Run lookup_ip_reputation on any external IPs discovered.",
+            "Cross-reference with get_network_connections PIDs for process attribution.",
+        ],
+    },
+
+    # ── Windows artifact registry extensions ──────────────────────────────────
+
+    "parse_userassist": {
+        "caveats": [
+            "UserAssist tracks GUI execution — CLI tools run without a GUI do not appear here.",
+            "RunCount may reset when the registry is flushed or after Windows Update.",
+            "UserAssist entries are per-user (NTUSER.DAT) — evidence only for the specific user's hive.",
+        ],
+        "advisories": [
+            "UserAssist proves a USER clicked an executable in Explorer — not that it was launched by malware.",
+            "Do NOT use UserAssist to prove attacker execution — use Prefetch or Amcache for that.",
+        ],
+        "corroboration": [
+            "Cross-reference with parse_prefetch to confirm execution time.",
+            "Run parse_shimcache to confirm the executable existed on disk before execution.",
+        ],
+    },
+
+    "parse_recentdocs": {
+        "caveats": [
+            "RecentDocs tracks documents opened by the user via Explorer — not programmatic file access.",
+            "Entries persist even after the referenced file is deleted.",
+        ],
+        "advisories": [
+            "RecentDocs proves document access by the logged-in user, not necessarily an attacker.",
+            "Cross-reference document types (e.g. .docx, .pdf, .xlsx) with known exfiltration targets.",
+        ],
+        "corroboration": [
+            "Run parse_lnk_files and parse_jump_lists to expand the accessed-file picture.",
+            "Cross-reference filenames with parse_mft for existence/deletion confirmation.",
+        ],
+    },
+
+    "parse_network_history": {
+        "caveats": [
+            "Network history from SYSTEM hive reflects current/past interface configurations, not connection logs.",
+            "IP addresses here are configured addresses, not destinations — this is not a connection log.",
+        ],
+        "advisories": [
+            "Use this to understand the system's network configuration — not for IOC extraction.",
+        ],
+        "corroboration": [
+            "Cross-reference with get_network_connections for active connections at capture time.",
+        ],
+    },
+
+    "parse_usb_history": {
+        "caveats": [
+            "USBSTOR entries record devices that were EVER connected — not necessarily at incident time.",
+            "Last-connection timestamps require cross-referencing with setupapi.dev.log for precision.",
+            "USB device serial numbers are vendor-assigned and may not be globally unique for cheap devices.",
+        ],
+        "advisories": [
+            "A USB device connection alone does NOT prove data exfiltration (T1052.001) — require file access evidence.",
+            "Legitimate USB devices (keyboards, mice, phones) appear in USBSTOR — focus on storage devices.",
+        ],
+        "corroboration": [
+            "Cross-reference USB connection timestamps with parse_event_logs logon sessions.",
+            "Run parse_mft to find files accessed from the USB drive path during the connection window.",
+            "Run parse_lnk_files to see if documents on the USB were opened by the user.",
+        ],
+    },
+
+    # ── Grounding and confidence tools ────────────────────────────────────────
+
+    "verify_findings": {
+        "caveats": [
+            "Grounding verification checks verbatim token presence in raw export bytes — paraphrased claims may fail even if accurate.",
+            "Grounding only covers the current session's audit log — claims from prior sessions cannot be verified.",
+            "A PASS verdict means all checked tokens were found — it does NOT validate the forensic interpretation.",
+        ],
+        "advisories": [
+            "ALWAYS call verify_findings before finish_analysis when grounding_score < 100%.",
+            "An UNVERIFIED claim must be either removed, corrected, or explicitly marked as 'interpretation' not 'observation'.",
+        ],
+        "corroboration": [
+            "Review each unverified_claim and trace it to the specific tool call that should support it.",
+            "Re-run the relevant tool if the audit_id is missing or the export file is empty.",
+        ],
+    },
 }
 
 

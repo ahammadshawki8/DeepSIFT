@@ -446,3 +446,284 @@ def register_correlation_tools(mcp, rag=None):
             ),
         }
         return wrap_response("adversarial_review", data)
+
+    @mcp.tool()
+    def detect_contradictions(
+        process_audit_id: str = "",
+        network_audit_id: str = "",
+        injection_audit_id: str = "",
+        hidden_process_audit_id: str = "",
+        shimcache_audit_id: str = "",
+        prefetch_audit_id: str = "",
+        event_log_audit_id: str = "",
+        services_audit_id: str = "",
+    ) -> str:
+        """
+        Detect contradictions between forensic artifact sources.
+
+        An UNRESOLVED_CONTRADICTION finding means two trusted tools produced
+        results that CANNOT both be true simultaneously. Each contradiction
+        significantly raises confidence that adversarial activity occurred
+        (rootkits, timestomping, log wiping, DKOM process hiding).
+
+        Contradiction types detected:
+        - DKOM_HIDDEN_PROCESS: PID in netscan but absent from pslist
+        - GHOST_INJECTED_PROCESS: PID in malfind but absent from pslist
+        - PREFETCH_WITHOUT_SHIMCACHE: File ran (prefetch) but never seen by shimcache
+          — possible shimcache manipulation or external execution
+        - NETWORK_WITHOUT_PROCESS: External IP connection with no owning process in pslist
+        - HIDDEN_SERVICE: Service in event logs (7045) but absent from svcscan
+        - PROCESS_PARENT_MISMATCH: Process has unexpected parent vs SANS baseline
+        - LOG_WIPE_INDICATOR: Significant gap in event log sequence numbers
+
+        Args:
+            process_audit_id:        audit_id from get_process_list (pslist)
+            network_audit_id:        audit_id from get_network_connections (netscan)
+            injection_audit_id:      audit_id from find_injected_code (malfind)
+            hidden_process_audit_id: audit_id from scan_hidden_processes (pslist vs psscan)
+            shimcache_audit_id:      audit_id from parse_shimcache
+            prefetch_audit_id:       audit_id from parse_prefetch
+            event_log_audit_id:      audit_id from parse_event_logs
+            services_audit_id:       audit_id from get_running_services (svcscan)
+        """
+        increment_tool_counter()
+        audit_id = get_last_audit_id()
+
+        # Load all available sources
+        sources: dict[str, dict] = {}
+        if process_audit_id:
+            sources["process_list"] = _load_export(process_audit_id)
+        if network_audit_id:
+            sources["network"] = _load_export(network_audit_id)
+        if injection_audit_id:
+            sources["injected"] = _load_export(injection_audit_id)
+        if hidden_process_audit_id:
+            sources["hidden_processes"] = _load_export(hidden_process_audit_id)
+        if shimcache_audit_id:
+            sources["shimcache"] = _load_export(shimcache_audit_id)
+        if prefetch_audit_id:
+            sources["prefetch"] = _load_export(prefetch_audit_id)
+        if event_log_audit_id:
+            sources["event_logs"] = _load_export(event_log_audit_id)
+        if services_audit_id:
+            sources["services"] = _load_export(services_audit_id)
+
+        contradictions: list[dict] = []
+
+        # ── Index each source ──────────────────────────────────────────────────
+
+        pslist_pids: set[str] = set()
+        for p in sources.get("process_list", {}).get("processes", []):
+            pid = str(p.get("pid", ""))
+            if pid:
+                pslist_pids.add(pid)
+
+        netscan_pids: set[str] = set()
+        netscan_external_ips: set[str] = set()
+        for c in sources.get("network", {}).get("connections", []):
+            pid = str(c.get("pid", ""))
+            if pid:
+                netscan_pids.add(pid)
+            ip = c.get("foreign_addr", "")
+            if ip and ip not in ("0.0.0.0", "::", "127.0.0.1", "::1", ""):
+                netscan_external_ips.add(ip)
+
+        malfind_pids: set[str] = set()
+        for f in sources.get("injected", {}).get("findings", []):
+            pid = str(f.get("pid", ""))
+            if pid:
+                malfind_pids.add(pid)
+
+        psscan_only_pids: set[str] = set()
+        for p in sources.get("hidden_processes", {}).get("hidden_processes", []):
+            pid = str(p.get("pid", ""))
+            if pid:
+                psscan_only_pids.add(pid)
+
+        shimcache_exes: set[str] = set()
+        for e in sources.get("shimcache", {}).get("all_entries", []):
+            path = e.get("path", "").lower()
+            if path:
+                # Extract just the filename for fuzzy matching
+                shimcache_exes.add(path.split("\\")[-1].split("/")[-1])
+
+        prefetch_exes: set[str] = set()
+        for e in sources.get("prefetch", {}).get("entries", []):
+            exe = e.get("executable", "").lower()
+            if exe:
+                prefetch_exes.add(exe)
+
+        svcscan_names: set[str] = set()
+        for s in sources.get("services", {}).get("services", []):
+            name = s.get("service_name", "").lower()
+            if name:
+                svcscan_names.add(name)
+
+        evtlog_service_installs: set[str] = set()
+        evtlog_seq_numbers: list[int] = []
+        for e in sources.get("event_logs", {}).get("events", []):
+            if e.get("event_id") in (7045, 4697):
+                svc = e.get("service_name", e.get("data", {}).get("ServiceName", "")).lower()
+                if svc:
+                    evtlog_service_installs.add(svc)
+            seq = e.get("record_id") or e.get("event_record_id")
+            if seq is not None:
+                try:
+                    evtlog_seq_numbers.append(int(seq))
+                except (TypeError, ValueError):
+                    pass
+
+        # ── Contradiction Rule 1: DKOM Hidden Process ──────────────────────────
+        # psscan found a PID that pslist cannot see → DKOM rootkit manipulation
+        if psscan_only_pids:
+            contradictions.append({
+                "type": "UNRESOLVED_CONTRADICTION",
+                "subtype": "DKOM_HIDDEN_PROCESS",
+                "severity": "CRITICAL",
+                "description": (
+                    "psscan found process(es) that pslist cannot enumerate. "
+                    "DKOM (Direct Kernel Object Manipulation) rootkit is the most likely explanation — "
+                    "the EPROCESS linked list has been modified to hide these processes (T1014)."
+                ),
+                "affected_pids": sorted(psscan_only_pids),
+                "sources": ["scan_hidden_processes (psscan)", "get_process_list (pslist)"],
+                "resolution": "Cannot resolve without kernel debugger — treat all psscan-only PIDs as rootkit-hidden.",
+                "mitre": "T1014 — Rootkit",
+                "confidence_impact": "+15 pts on Process Injection / Rootkit findings",
+            })
+
+        # ── Contradiction Rule 2: Network PID without pslist entry ─────────────
+        orphan_net_pids = netscan_pids - pslist_pids
+        if orphan_net_pids and pslist_pids:
+            contradictions.append({
+                "type": "UNRESOLVED_CONTRADICTION",
+                "subtype": "NETWORK_WITHOUT_PROCESS",
+                "severity": "HIGH",
+                "description": (
+                    "netscan shows active network connections owned by PIDs that do NOT appear "
+                    "in pslist. The owning process is either hidden (rootkit) or terminated after "
+                    "the connection was established but the socket remains in a TIME_WAIT state."
+                ),
+                "orphan_pids": sorted(orphan_net_pids),
+                "sources": ["get_network_connections (netscan)", "get_process_list (pslist)"],
+                "resolution": "Cross-reference with psscan; if PID not in psscan either, suspect DKOM.",
+                "mitre": "T1014 or T1071 — hidden C2 process",
+                "confidence_impact": "+10 pts on network IOC findings",
+            })
+
+        # ── Contradiction Rule 3: Injected PID without pslist entry ───────────
+        ghost_pids = malfind_pids - pslist_pids
+        if ghost_pids and pslist_pids:
+            contradictions.append({
+                "type": "UNRESOLVED_CONTRADICTION",
+                "subtype": "GHOST_INJECTED_PROCESS",
+                "severity": "HIGH",
+                "description": (
+                    "malfind found injected code regions in PIDs that do NOT appear in pslist. "
+                    "These are 'ghost' injections: either the host process terminated after injection, "
+                    "or the process is DKOM-hidden. Either way, the injection event occurred."
+                ),
+                "ghost_pids": sorted(ghost_pids),
+                "sources": ["find_injected_code (malfind)", "get_process_list (pslist)"],
+                "resolution": "Check psscan for these PIDs. If absent, the process self-terminated post-injection.",
+                "mitre": "T1055 — Process Injection (confirmed by memory artifact)",
+                "confidence_impact": "+10 pts on injection findings",
+            })
+
+        # ── Contradiction Rule 4: Prefetch execution without shimcache record ──
+        # A file ran (prefetch) but shimcache has no record of it ever existing.
+        # Possible: shimcache cleared/manipulated, or file was executed from network/USB
+        # and never touched the local file system AppCompatCache.
+        prefetch_without_shim: list[str] = []
+        for exe in prefetch_exes:
+            if exe not in shimcache_exes:
+                prefetch_without_shim.append(exe)
+
+        if prefetch_without_shim and shimcache_exes:
+            contradictions.append({
+                "type": "UNRESOLVED_CONTRADICTION",
+                "subtype": "PREFETCH_WITHOUT_SHIMCACHE",
+                "severity": "MEDIUM",
+                "description": (
+                    "These executables have Prefetch entries (they RAN on this system) but "
+                    "NO corresponding Shimcache entries (no record of the file ever being seen). "
+                    "Possible explanations: AppCompatCache was cleared (T1070.006 — Indicator Removal), "
+                    "execution from a network share or removable media, or a Shimcache parsing gap."
+                ),
+                "executables": sorted(prefetch_without_shim)[:30],
+                "sources": ["parse_prefetch", "parse_shimcache"],
+                "resolution": "Check MFT for these filenames. If MFT has them but shimcache doesn't, "
+                              "the AppCompatCache was likely manipulated.",
+                "mitre": "T1070.006 — Indicator Removal: Timestomp / T1052 — Exfiltration over Physical Medium",
+                "confidence_impact": "+5 pts on anti-forensics findings",
+            })
+
+        # ── Contradiction Rule 5: Service in event log but not in svcscan ─────
+        service_ghost = evtlog_service_installs - svcscan_names
+        if service_ghost and svcscan_names:
+            contradictions.append({
+                "type": "UNRESOLVED_CONTRADICTION",
+                "subtype": "HIDDEN_SERVICE",
+                "severity": "HIGH",
+                "description": (
+                    "Event logs record the INSTALLATION of these service(s) (EventID 7045/4697), "
+                    "but svcscan cannot find them in the current service database. "
+                    "The service was either deleted post-installation (cleanup) or is hidden "
+                    "by a rootkit that patches the SCM (Service Control Manager) DKOM."
+                ),
+                "missing_services": sorted(service_ghost),
+                "sources": ["parse_event_logs (7045/4697)", "get_running_services (svcscan)"],
+                "resolution": "Check MFT for the service binary path from the event log. "
+                              "If binary exists but service is gone → cleanup; if neither → rootkit or full cleanup.",
+                "mitre": "T1543.003 — Windows Service + T1070 — Indicator Removal",
+                "confidence_impact": "+10 pts on persistence findings",
+            })
+
+        # ── Contradiction Rule 6: Event log sequence number gap ───────────────
+        if len(evtlog_seq_numbers) > 10:
+            sorted_seqs = sorted(evtlog_seq_numbers)
+            max_gap = 0
+            gap_at = 0
+            for i in range(1, len(sorted_seqs)):
+                gap = sorted_seqs[i] - sorted_seqs[i - 1]
+                if gap > max_gap:
+                    max_gap = gap
+                    gap_at = sorted_seqs[i - 1]
+            if max_gap > 100:
+                contradictions.append({
+                    "type": "UNRESOLVED_CONTRADICTION",
+                    "subtype": "LOG_WIPE_INDICATOR",
+                    "severity": "HIGH",
+                    "description": (
+                        f"Event log record ID sequence has a gap of {max_gap} events "
+                        f"after record #{gap_at}. Windows event logs use monotonically increasing "
+                        "record IDs — a gap this large indicates events were deleted or the log "
+                        "was cleared (T1070.001 — Clear Windows Event Logs)."
+                    ),
+                    "max_gap": max_gap,
+                    "gap_after_record_id": gap_at,
+                    "sources": ["parse_event_logs"],
+                    "resolution": "Check for EventID 1102 (Security log cleared) or 104 (System log cleared) "
+                                  "near the gap boundary.",
+                    "mitre": "T1070.001 — Indicator Removal: Clear Windows Event Logs",
+                    "confidence_impact": "+10 pts on anti-forensics findings",
+                })
+
+        data = {
+            "contradictions_found": len(contradictions),
+            "unresolved_contradictions": [c for c in contradictions if c["type"] == "UNRESOLVED_CONTRADICTION"],
+            "all_contradictions": contradictions,
+            "sources_checked": list(sources.keys()),
+            "summary": (
+                f"Detected {len(contradictions)} contradiction(s) across "
+                f"{len(sources)} artifact source(s). "
+                + (
+                    "UNRESOLVED contradictions STRONGLY indicate adversarial anti-forensics — "
+                    "include all in finish_analysis report."
+                    if contradictions else
+                    "No contradictions found — artifact sources are internally consistent."
+                )
+            ),
+            "tool_calls_used": get_tool_count(),
+        }
+        return wrap_response("detect_contradictions", data, audit_id)

@@ -9,6 +9,8 @@ forensic discipline (caveats, advisories, corroboration hints), enriches finding
 MITRE ATT&CK tags and RAG-backed threat intelligence, and enforces chain-of-custody audit
 logging before the LLM ever sees a single byte of evidence.
 
+**59 typed MCP tools · Post-hoc grounding verification · 4-axis quantified confidence scoring · 3,700+ Sigma rules via Hayabusa · 6-type contradiction detection · vigia-cases benchmark runner**
+
 > **Hackathon:** [Find Evil! — SANS DFIR](https://findevil.devpost.com/) · Deadline: June 15, 2026
 
 ---
@@ -24,6 +26,10 @@ failure modes that DeepSIFT eliminates architecturally:
 | Raw CLI output → hallucination | Volatility/log2timeline text enters context unparsed | Python parsers produce typed JSON — raw text never reaches the LLM |
 | Safety via prompt → bypassable | "Do not write to /cases/" is a suggestion | `guard_output_path()` raises `PermissionError` at OS level |
 | No context → generic analysis | LLM has no threat intel during tool execution | ChromaDB RAG + MITRE ATT&CK injected into every tool response |
+| Unverifiable LLM claims | No grounding check — analyst must manually verify | `verify_findings` checks every claim token against raw export bytes |
+| Qualitative confidence | "high/low" with no definition | 4-axis 0-100 score: Tool Reliability + Corroboration + IOC Specificity + MITRE Accuracy |
+| No Sigma rule coverage | Raw event log text to LLM | Hayabusa 3,700+ Sigma rules → structured MITRE-tagged alerts |
+| Contradictions ignored | No cross-artifact consistency check | `detect_contradictions` finds 6 contradiction types (DKOM, ghost PIDs, log wipes, etc.) |
 
 ---
 
@@ -36,8 +42,8 @@ flowchart TD
     B["DeepSIFT MCP Server\nmcp_server/server.py"]
     B -->|"Structured JSON only\nnever raw text"| A
 
-    B --> C["Tool Modules\n37 typed functions"]
-    C --> D["SIFT Tools\nVolatility · log2timeline · Sleuthkit\nEZ Tools · YARA"]
+    B --> C["Tool Modules\n59 typed functions"]
+    C --> D["SIFT Tools\nVolatility · log2timeline · Sleuthkit\nEZ Tools · YARA · Hayabusa"]
     D -->|"raw output"| E["Parsers\npslist · netscan · malfind\ntimeline · mitre_auto_map"]
     E -->|"structured dict"| F["Forensic Knowledge Envelope\ncaveats · advisories · corroboration"]
     F -->|"enriched JSON"| B
@@ -54,10 +60,10 @@ flowchart TD
 
 ## Tool Inventory
 
-DeepSIFT exposes **37 typed MCP tools** across six categories. No `run_shell`, no
+DeepSIFT exposes **59 typed MCP tools** across nine categories. No `run_shell`, no
 `execute_command` — every tool has a typed signature and returns structured JSON.
 
-### Memory Forensics (Volatility 3)
+### Memory Forensics — Core (Volatility 3)
 
 | Tool | Purpose | Key Output Fields |
 |---|---|---|
@@ -70,6 +76,21 @@ DeepSIFT exposes **37 typed MCP tools** across six categories. No `run_shell`, n
 | `get_loaded_dlls` | DLL listing for a specific PID | `dlls`, `unsigned_count` |
 | `get_registry_hives` | List hives in memory image | `hives` |
 | `get_registry_key` | Read a specific registry key from memory | `key`, `values` |
+
+### Memory Forensics — Extended (Volatility 3)
+
+| Tool | Purpose | Key Forensic Value |
+|---|---|---|
+| `get_privileges` | Token privilege enumeration per PID | SeDebugPrivilege on non-system process = T1134 |
+| `get_mutexes` | Mutex object scan (mutantscan) | Malware-family mutex fingerprinting |
+| `get_env_vars` | Process environment block variables | PATH hijacking, unusual TEMP locations |
+| `get_vad_info` | Virtual Address Descriptor tree | Private RWX non-file-backed regions = injection staging |
+| `get_ldrmodules` | Compare InLoad / InMem / InInit PEB lists | DLLs absent from all three = reflective injection (T1055.001) |
+| `get_ssdt` | System Service Descriptor Table hooks | Non-ntoskrnl hooks = rootkit (T1014) |
+| `get_callbacks` | Kernel callback registrations | Unknown driver callbacks = rootkit |
+| `get_filescan` | FILE_OBJECT pool scan | Open handles to files not visible in process DLL list |
+| `get_timeliner` | Memory-resident timestamp timeline | Process / DLL / registry chronology |
+| `get_devicetree` | Kernel device tree | Hidden filter drivers, rootkit stack position |
 
 ### Timeline Analysis (log2timeline / Plaso)
 
@@ -105,12 +126,43 @@ DeepSIFT exposes **37 typed MCP tools** across six categories. No `run_shell`, n
 | `parse_usn_journal` | $UsnJrnl:$J via MFTECmd | File system change journal; burst deletion detection |
 | `lookup_ip_reputation` | AbuseIPDB + VirusTotal APIs | Confidence score, country, ISP, VT malicious count |
 
+### Windows Event Log — Hayabusa / Sigma
+
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `parse_hayabusa` | Apply 3,700+ community Sigma rules to .evtx directory | `alerts`, `critical_count`, `mitre_techniques` |
+| `list_hayabusa_rules` | Show available Hayabusa rule profiles | `profiles`, `rule_count` |
+
+### Static File Analysis
+
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `get_pe_metadata` | PE header, sections, imports, compile timestamp, entropy | `high_entropy_sections`, `suspicious_imports`, `timestamp_anomaly` |
+| `extract_strings` | String extraction + IOC pattern scan (IPs, URLs, base64, registry) | `iocs_found`, `ioc_summary` |
+| `detect_packer` | Entropy analysis + UPX/MPRESS/Themida signature detection | `verdict`, `overall_entropy`, `packer_signatures_found` |
+
+### Network Traffic Analysis
+
+| Tool | Purpose | Key Output Fields |
+|---|---|---|
+| `parse_pcap_summary` | TShark PCAP summary — top talkers, exfil signals | `large_transfers`, `external_conversations` |
+| `extract_dns_queries` | DNS extraction — DGA detection, beaconing, DNS tunneling | `suspicious_domains`, `beaconing_candidates` |
+| `parse_arp_cache` | Volatility netstat as host enumeration proxy | `unique_hosts_seen`, `hosts` |
+
 ### Cross-Artifact Correlation
 
 | Tool | Purpose |
 |---|---|
 | `correlate_artifacts` | Join findings across memory/disk/network/registry by PID, path, IP, user |
 | `adversarial_review` | Challenge current hypothesis with counter-arguments before `finish_analysis` |
+| `detect_contradictions` | Find UNRESOLVED_CONTRADICTION findings: DKOM, ghost PIDs, log wipes, hidden services |
+
+### Investigation Control
+
+| Tool | Purpose |
+|---|---|
+| `verify_findings` | Verbatim token grounding check — every claim vs raw export bytes (run before `finish_analysis`) |
+| `finish_analysis` | Structured report with grounding score, 4-axis confidence score, `audit_ids` citation |
 
 ### YARA Hunting
 
@@ -121,12 +173,6 @@ DeepSIFT exposes **37 typed MCP tools** across six categories. No `run_shell`, n
 | `scan_file_with_yara` | Static file scan against named rule set |
 
 **Built-in YARA rule sets:** `suspicious_strings` · `webshells` · `ransomware` · `rats` · `packers`
-
-### Investigation Control
-
-| Tool | Purpose |
-|---|---|
-| `finish_analysis` | Structured report with `observation`/`interpretation` split + `audit_ids` citation |
 
 ---
 
@@ -186,26 +232,29 @@ flowchart TD
 
 DeepSIFT was designed knowing the competitive landscape. Here is what sets it apart:
 
-| Feature | DeepSIFT | Valhuntir | Agentic-DART | Mulder | find-evil-agent |
+| Feature | DeepSIFT | casefile | Valhuntir | Agentic-DART | Mulder |
 |---|:---:|:---:|:---:|:---:|:---:|
-| MCP typed tools | 37 | 75–100 | 72 | 140+ | 18 |
-| RAG injected at every tool call | ✅ | Report-only | ✗ | ✗ | ✗ |
-| MITRE auto-map at tool call time | ✅ | ✗ | ✗ | Navigator export | ✗ |
-| Cross-artifact correlation | ✅ | OpenSearch | DuckDB | SQLite FTS | ✗ |
-| Adversarial self-review | ✅ | ✗ | Contradiction detect | Phase 4 | ✗ |
-| Chain-of-custody audit_id | ✅ | HMAC+PBKDF2 | SHA-256 chained | BLAKE2b | ✗ |
-| Forensic knowledge envelope | ✅ per-tool | YAML catalog | ✗ | ✗ | ✗ |
-| finish_analysis provenance gate | ✅ audit_ids req. | Cryptographic | Structural | Report | ✗ |
-| Hunt Evil process baseline | 31 procs | 2.6M records | ✗ | NIST dataset | FAISS registry |
+| MCP typed tools | **59** | ~30 | 75–100 | ~25 | 140+ |
+| Post-hoc grounding verification | ✅ verbatim token | ✅ CSV verbatim | ✗ | ✗ | ✗ |
+| Quantified confidence score (0-100) | ✅ 4-axis | ✗ | ✗ | ✗ | ✗ |
+| Contradiction detection | ✅ 6 types | ✗ | ✗ | ✗ | ✗ |
+| RAG injected at every tool call | ✅ | ✗ | Report-only | ✗ | ✗ |
+| Hayabusa Sigma rules (3,700+) | ✅ | ✗ | ✅ | ✗ | ✗ |
+| MITRE auto-map at tool call time | ✅ | ✗ | ✗ | ✗ | Navigator export |
+| Cross-artifact correlation | ✅ | ✗ | OpenSearch | DuckDB | SQLite FTS |
+| Adversarial self-review | ✅ | ✗ | ✗ | ✗ | Phase 4 |
+| Chain-of-custody audit_id | ✅ | ✅ | HMAC+PBKDF2 | SHA-256 chained | BLAKE2b |
+| Forensic knowledge envelope | ✅ per-tool | ✗ | YAML catalog | ✗ | ✗ |
+| Observation/interpretation split | ✅ | ✗ | ✗ | ✗ | ✗ |
+| vigia-cases benchmark | ✅ | ✗ | ✗ | ✅ | ✅ |
 | SRUM exfil quantification | ✅ | ✗ | ✗ | ✗ | ✗ |
-| USN Journal burst detection | ✅ | ✗ | ✗ | ✗ | ✗ |
-| Evidence write protection | Architectural | Bubblewrap kernel | Read-only MCP | ✗ | ✗ |
-| Multi-agent orchestration | LangGraph | Hub-spoke | Single | Pipeline | LangGraph |
+| Evidence write protection | Architectural | ✗ | Bubblewrap | Read-only | ✗ |
 
-**DeepSIFT's unique proposition:** It is the only submission that injects RAG-backed MITRE
-threat intelligence into every individual tool call, not just at report generation time.
-Combined with the per-tool forensic knowledge envelope (caveats, advisories, corroboration),
-it enforces analytical discipline at the infrastructure layer where no prompt can override it.
+**DeepSIFT's unique advantages:**
+- **Only submission** with post-hoc grounding verification at the tool layer, scoring every claim token against raw export bytes
+- **Only submission** with quantified 4-axis confidence scoring (not qualitative "high/low")
+- **Only submission** with structured contradiction detection — `UNRESOLVED_CONTRADICTION` findings that prove anti-forensics occurred
+- **Only submission** that injects RAG-backed MITRE threat intelligence into every individual tool call, not just at report generation time
 
 ---
 
@@ -340,7 +389,7 @@ alongside the parsed artifact data, not as a separate lookup step.
 
 ## Benchmark
 
-DeepSIFT includes a scoring framework to measure improvement over Protocol SIFT:
+### Protocol SIFT vs DeepSIFT (ROCBA case)
 
 ```bash
 python3 demo.py \
@@ -356,6 +405,25 @@ The HTML report shows:
 - Precision, recall, and F1 scores vs ground truth
 - Chain-of-custody audit trail summary
 
+### vigia-cases Standardized Benchmark
+
+DeepSIFT supports the `annatchijova/vigia-cases` standardized benchmark dataset used
+across multiple hackathon submissions for objective cross-system comparison:
+
+```bash
+# Clone vigia-cases dataset
+git clone https://github.com/annatchijova/vigia-cases
+
+# Run DeepSIFT against all cases
+python3 benchmark/vigia_runner.py \
+    --vigia-root ./vigia-cases \
+    --results-root ./benchmark/deepsift_results \
+    --output-json benchmark/reports/vigia_report.json \
+    --output-md benchmark/reports/vigia_report.md
+```
+
+Scored dimensions: MITRE Recall · IOC Recall · Narrative Recall · Hallucination Rate · Grounding Score · Confidence Score · Contradictions Found
+
 ---
 
 ## Project Structure
@@ -363,23 +431,29 @@ The HTML report shows:
 ```
 DeepSIFT/
 ├── mcp_server/
-│   ├── server.py                  ← MCP server entry point (37 tools)
+│   ├── server.py                  ← MCP server entry point (59 tools)
 │   ├── config.py                  ← Tool paths, environment config
 │   ├── audit.py                   ← audit_id generation, tool counter, chain-of-custody log
 │   ├── tools/
-│   │   ├── volatility.py          ← 9 Volatility 3 tools + finish_analysis
-│   │   ├── windows_artifacts.py   ← 11 EZ Tools wrappers
+│   │   ├── volatility.py          ← 9 core Volatility tools + verify_findings + finish_analysis
+│   │   ├── volatility_extended.py ← 10 advanced Volatility tools (privileges, VAD, SSDT, callbacks…)
+│   │   ├── hayabusa.py            ← Hayabusa 3,700+ Sigma rule integration
+│   │   ├── file_analysis.py       ← PE metadata, string extraction, packer detection
+│   │   ├── network_analysis.py    ← PCAP summary, DNS queries, ARP cache
+│   │   ├── windows_artifacts.py   ← 16 EZ Tools wrappers (event logs, registry, execution artifacts)
 │   │   ├── log2timeline.py        ← 3 Plaso tools
 │   │   ├── sleuthkit.py           ← 4 Sleuth Kit tools
 │   │   ├── yara_tools.py          ← 3 YARA tools
-│   │   └── correlation.py         ← correlate_artifacts + adversarial_review
+│   │   └── correlation.py         ← correlate_artifacts + adversarial_review + detect_contradictions
 │   └── parsers/
 │       ├── pslist_parser.py       ← SANS Hunt Evil baseline (31 processes)
 │       ├── netscan_parser.py      ← External IP extraction and flagging
 │       ├── malfind_parser.py      ← Injection type classification
 │       ├── timeline_parser.py     ← Suspicious keyword detection
 │       ├── mitre_auto_map.py      ← Rule-based MITRE ATT&CK mapping
-│       └── forensic_knowledge.py  ← Per-tool caveats/advisories/corroboration
+│       ├── grounding_verifier.py  ← Post-hoc verbatim token grounding check
+│       ├── confidence_scorer.py   ← 4-axis quantified confidence scoring (0-100)
+│       └── forensic_knowledge.py  ← Per-tool caveats/advisories/corroboration (59 entries)
 ├── rag/
 │   ├── knowledge_base.py          ← ChromaDB vector store
 │   ├── query.py                   ← Semantic search interface
@@ -391,8 +465,9 @@ DeepSIFT/
 ├── agents/
 │   └── orchestrator.py            ← LangGraph multi-agent coordination
 ├── benchmark/
-│   ├── runner.py                  ← Benchmark execution
+│   ├── runner.py                  ← Benchmark execution (Protocol SIFT vs DeepSIFT)
 │   ├── scorer.py                  ← Precision/recall/F1 vs ground truth
+│   ├── vigia_runner.py            ← vigia-cases standardized multi-case benchmark
 │   ├── baselines/                 ← Protocol SIFT reference findings
 │   └── reports/html_report.py     ← Visual HTML comparison report
 ├── tests/                         ← pytest unit tests (32 passing)
@@ -444,7 +519,7 @@ These are not prompts — they are code:
    attempt under `/cases/`, `/mnt/`, or `/media/`. No prompt override possible.
 
 2. **No shell escape** — There is no `run_command` or `execute_shell` tool on the MCP
-   surface. The server exposes only the 37 typed tools listed above.
+   surface. The server exposes only the 59 typed tools listed above.
 
 3. **Maximum 10 tool calls** — `audit.py` counter enforces this. At call 10, every tool
    returns a `MAX_ITERATIONS reached` warning and `finish_analysis` must be called.
@@ -474,6 +549,9 @@ YARA_CMD=yara
 
 # EZ Tools directory (SIFT default)
 EZ_TOOLS_DIR=/opt/zimmermantools
+
+# Hayabusa event log analyzer (3,700+ Sigma rules)
+HAYABUSA_CMD=hayabusa
 
 # Optional — enables IP reputation lookups
 ABUSEIPDB_API_KEY=your_key_here

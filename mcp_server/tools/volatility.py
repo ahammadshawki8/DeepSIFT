@@ -25,6 +25,8 @@ from mcp_server.parsers.forensic_knowledge import wrap_response
 from mcp_server.parsers.mitre_auto_map import (
     map_process_anomalies, map_injection, map_network_connection, map_cmdline,
 )
+from mcp_server.parsers.grounding_verifier import GroundingVerifier
+from mcp_server.parsers.confidence_scorer import calculate_confidence_score
 
 
 def _run(cmd: list[str], tool_name: str) -> tuple[str, str]:
@@ -483,6 +485,62 @@ def register_volatility_tools(mcp, rag=None):
         return wrap_response("get_running_services", data, audit_id)
 
     @mcp.tool()
+    def verify_findings(
+        proposed_findings_json: str,
+        audit_ids: list,
+    ) -> str:
+        """
+        Verify proposed findings against raw tool outputs BEFORE submitting finish_analysis.
+
+        Every claim (process names, IP addresses, MITRE techniques, file paths) is checked
+        against the bytes returned by the cited tool calls. Claims that cannot be traced to
+        raw evidence are flagged UNVERIFIED.
+
+        Call this BEFORE finish_analysis. If grounding_score < 100%, review and correct
+        the UNVERIFIED claims. Only call finish_analysis after achieving a clean grounding.
+
+        Args:
+            proposed_findings_json: JSON string of your planned findings dict.
+                                    Must include: suspicious_processes, network_iocs,
+                                    mitre_techniques, observation, interpretation.
+            audit_ids:              List of audit_id strings from tool calls this session.
+        """
+        from mcp_server.config import ANALYSIS_DIR
+        increment_tool_counter()
+
+        if not audit_ids:
+            return json.dumps({
+                "error": "audit_ids required — provide audit_ids from tool calls this session."
+            })
+
+        try:
+            findings = json.loads(proposed_findings_json)
+        except (json.JSONDecodeError, TypeError) as e:
+            return json.dumps({"error": f"Invalid JSON in proposed_findings_json: {e}"})
+
+        verifier = GroundingVerifier(ANALYSIS_DIR)
+        result = verifier.verify(findings, audit_ids)
+
+        # Confidence score preview
+        confidence_preview = calculate_confidence_score(
+            audit_ids=audit_ids,
+            findings=findings,
+            audit_log_path=ANALYSIS_DIR / "forensic_audit.log",
+            grounding_score=result["grounding_score"],
+        )
+
+        return json.dumps({
+            "grounding_verification": result,
+            "confidence_preview": confidence_preview,
+            "next_step": (
+                "Grounding PASSED — proceed to finish_analysis."
+                if result["verdict"] == "PASS"
+                else f"Grounding FAILED — {result['unverified_count']} unverified claim(s). "
+                     "Review unverified_claims and correct before finish_analysis."
+            ),
+        }, default=str)
+
+    @mcp.tool()
     def finish_analysis(
         observation: str,
         interpretation: str,
@@ -499,6 +557,9 @@ def register_volatility_tools(mcp, rag=None):
         Separates factual observation from analytical interpretation to reduce
         hallucination. Requires audit_ids — every claim must cite a tool call.
 
+        Automatically runs grounding verification and quantified confidence scoring.
+        The report will not be saved if grounding_score is 0 (all claims unverifiable).
+
         Args:
             observation:           FACTUAL summary of raw tool outputs (what the tools showed).
                                    No interpretation. No speculation. Facts only.
@@ -508,7 +569,8 @@ def register_volatility_tools(mcp, rag=None):
             network_iocs:          List of suspicious IPs, domains, or ports.
             mitre_techniques:      List of MITRE ATT&CK technique IDs observed.
             timeline:              Chronological list of events with timestamps.
-            confidence:            'high', 'medium', or 'low'.
+            confidence:            'high', 'medium', or 'low' (qualitative label preserved
+                                   alongside the numeric confidence score).
             audit_ids:             List of audit_id strings from the tool calls that
                                    support these findings. Cite every tool you relied on.
         """
@@ -523,6 +585,36 @@ def register_volatility_tools(mcp, rag=None):
                          "that produced the evidence for these findings. Every claim must be traceable.",
             })
 
+        # ── Grounding verification ─────────────────────────────────────────────
+        findings_draft = {
+            "observation": observation,
+            "interpretation": interpretation,
+            "suspicious_processes": suspicious_processes,
+            "network_iocs": network_iocs,
+            "mitre_techniques": mitre_techniques,
+        }
+        verifier = GroundingVerifier(ANALYSIS_DIR)
+        grounding = verifier.verify(findings_draft, audit_ids)
+
+        # Hard block: if 0 claims verified and there are claims to verify, reject
+        if (grounding["total_claims_checked"] > 0 and
+                grounding["verified_count"] == 0):
+            return json.dumps({
+                "error": "GROUNDING FAILED — zero claims could be traced to raw evidence. "
+                         "Every suspicious_processes / network_iocs / mitre_techniques entry "
+                         "must appear verbatim in a cited tool's raw output. "
+                         "Run verify_findings first to identify unverifiable claims.",
+                "grounding": grounding,
+            })
+
+        # ── Quantified confidence scoring ──────────────────────────────────────
+        confidence_score = calculate_confidence_score(
+            audit_ids=audit_ids,
+            findings=findings_draft,
+            audit_log_path=ANALYSIS_DIR / "forensic_audit.log",
+            grounding_score=grounding["grounding_score"],
+        )
+
         findings = {
             "observation": observation,
             "interpretation": interpretation,
@@ -531,7 +623,9 @@ def register_volatility_tools(mcp, rag=None):
             "network_iocs": network_iocs,
             "mitre_techniques": mitre_techniques,
             "timeline": timeline,
-            "confidence": confidence,
+            "confidence_qualitative": confidence,
+            "confidence_score": confidence_score,
+            "grounding": grounding,
             "audit_ids": audit_ids,
             "tool_calls_used": tool_count,
             "status": "complete",
@@ -544,6 +638,10 @@ def register_volatility_tools(mcp, rag=None):
             "status": "findings_saved",
             "path": str(out),
             "tool_calls_used": tool_count,
+            "confidence_score": confidence_score["total_score"],
+            "confidence_tier": confidence_score["tier"],
+            "grounding_score": grounding["grounding_score"],
+            "grounding_verdict": grounding["verdict"],
             "findings": findings,
         })
 

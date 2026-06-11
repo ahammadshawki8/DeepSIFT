@@ -717,3 +717,132 @@ def register_windows_artifact_tools(mcp, rag=None):
                 result["virustotal"] = {"error": str(e)}
 
         return wrap_response("lookup_ip_reputation", result)
+
+    @mcp.tool()
+    def parse_userassist(ntuser_path: str) -> str:
+        """
+        Parse UserAssist registry keys from NTUSER.DAT to recover GUI program
+        execution history with run counts and last execution timestamps.
+
+        UserAssist proves GUI execution (not just file existence) and provides
+        run counts — useful for showing repeated attacker tool usage (T1059, T1036).
+
+        Args:
+            ntuser_path: Path to the NTUSER.DAT hive file for a specific user.
+        """
+        output_dir = str(EXPORTS_DIR / "userassist")
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        batch_file = str(EZ_TOOLS_DIR / "BatchExamples" / "UserAssist.reb")
+        cmd = [_ez("RECmd.exe"), "-f", ntuser_path, "--bn", batch_file, "--csv", output_dir]
+        _run(cmd, "parse_userassist")
+        audit_id = get_last_audit_id()
+        increment_tool_counter()
+
+        entries = _read_csv_dir(output_dir)
+        useful = []
+        for row in entries:
+            path = row.get("ValueName", row.get("Path", ""))
+            count = row.get("RunCounter", row.get("Count", ""))
+            last_run = row.get("LastExecuted", row.get("LastWriteTimestamp", ""))
+            if path:
+                useful.append({"path": path, "run_count": count, "last_run": last_run,
+                               "suspicious": _is_suspicious_path(path)})
+
+        suspicious = [e for e in useful if e.get("suspicious")]
+        data = {
+            "total_userassist_entries": len(useful),
+            "suspicious_entries": suspicious[:50],
+            "all_entries": useful[:200],
+        }
+        return wrap_response("parse_userassist", data, audit_id)
+
+    @mcp.tool()
+    def parse_recentdocs(ntuser_path: str) -> str:
+        """
+        Parse RecentDocs registry keys to recover recently accessed document paths.
+
+        RecentDocs records files opened via Explorer/file dialogs — reveals
+        documents staged for exfiltration or accessed by the attacker (T1083, T1567).
+
+        Args:
+            ntuser_path: Path to the NTUSER.DAT hive file for a specific user.
+        """
+        output_dir = str(EXPORTS_DIR / "recentdocs")
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        cmd = [
+            _ez("RECmd.exe"), "-f", ntuser_path,
+            "--kn", "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RecentDocs",
+            "--csv", output_dir,
+        ]
+        _run(cmd, "parse_recentdocs")
+        audit_id = get_last_audit_id()
+        increment_tool_counter()
+
+        entries = _read_csv_dir(output_dir)
+        data = {
+            "total_recentdocs": len(entries),
+            "entries": entries[:200],
+        }
+        return wrap_response("parse_recentdocs", data, audit_id)
+
+    @mcp.tool()
+    def parse_network_history(system_hive_path: str) -> str:
+        """
+        Parse network connection history from the SYSTEM registry hive.
+
+        Records WiFi SSIDs, wired connections, and connection timestamps.
+        Reveals if the compromised machine connected to attacker-controlled
+        networks or changed network profiles during the incident (T1020, T1048).
+
+        Args:
+            system_hive_path: Path to the SYSTEM hive file.
+        """
+        output_dir = str(EXPORTS_DIR / "network_history")
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        cmd = [
+            _ez("RECmd.exe"), "-f", system_hive_path,
+            "--kn", "CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces",
+            "--csv", output_dir,
+        ]
+        _run(cmd, "parse_network_history")
+        audit_id = get_last_audit_id()
+        increment_tool_counter()
+
+        entries = _read_csv_dir(output_dir)
+        data = {
+            "total_network_entries": len(entries),
+            "entries": entries[:200],
+        }
+        return wrap_response("parse_network_history", data, audit_id)
+
+    @mcp.tool()
+    def parse_usb_history(system_hive_path: str) -> str:
+        """
+        Parse USB device connection history from the SYSTEM registry hive.
+
+        Records device serial numbers, friendly names, first/last connection times.
+        USB connections during the incident window may indicate physical data
+        exfiltration (T1052.001) or hardware implants.
+
+        Args:
+            system_hive_path: Path to the SYSTEM hive file.
+        """
+        output_dir = str(EXPORTS_DIR / "usb_history")
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        cmd = [
+            _ez("RECmd.exe"), "-f", system_hive_path,
+            "--kn", "CurrentControlSet\\Enum\\USBSTOR",
+            "--csv", output_dir,
+        ]
+        _run(cmd, "parse_usb_history")
+        audit_id = get_last_audit_id()
+        increment_tool_counter()
+
+        entries = _read_csv_dir(output_dir)
+        data = {
+            "total_usb_devices": len(entries),
+            "entries": entries[:100],
+            "note": "Cross-reference connection timestamps with logon events (4624) "
+                    "to identify which user account was active during USB insertion.",
+        }
+        return wrap_response("parse_usb_history", data, audit_id)
