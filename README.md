@@ -408,6 +408,50 @@ DeepSIFT was designed knowing the competitive landscape. Here is what sets it ap
 
 ---
 
+## Validated Results — ROCBA Case (Memory + Disk)
+
+End-to-end benchmark on the SANS FOR508 **ROCBA** case (`Rocba-Memory.raw` 18 GB +
+`rocba-cdrive.e01` 81 GiB C: volume), scored against ground truth:
+
+| | Protocol SIFT (memory-only) | **DeepSIFT (memory + disk)** |
+|---|---|---|
+| Accuracy (`must_identify`) | 0 / 4 (0 %) | **4 / 4 (100 %)** |
+| Hallucinations | 0 | **0** |
+
+The memory image was captured **3 days after** the 2020-11-13 incident, so the break-in evidence
+exists only on disk. DeepSIFT's disk + browser analysis reconstructs it with zero hallucinations:
+
+- **Unauthorized access (2020-11-13)** — wave of Event 4625 *Failed Logon* (RDP brute force).
+- **IP theft / exfiltration** — LNK artifacts show SRL project files (`Megaforce Specs & Research.docx`,
+  `Blue Thunder blueprint`, `Files from SRL system`) copied to an external **`F:\` USB drive** on 2020-11-13.
+- **Cloud usage + incident-window browsing** — Google Drive + SharePoint (`starkresearchlabs-my.sharepoint.com`)
+  access on Nov 14 UTC (= Nov 13 evening EST), and a Google search for **`sdelete download`** (anti-forensics).
+
+Reproduce (deterministic, no LLM/API key required):
+
+```bash
+python3 demo.py \
+  --image /cases/ROCBA/Rocba-Memory.raw \
+  --evidence-mount /mnt/evidence \
+  --baseline benchmark/baselines/protocol_sift_rocba_findings.json \
+  --ground-truth benchmark/ground_truth/rocba_ground_truth.json
+```
+
+### Running on SIFT Workstation (Linux) — notes
+
+- **EZ Tools** are invoked as .NET assemblies (`dotnet /opt/zimmermantools/<Tool>.dll`, subdir-aware),
+  not Windows `.exe` — works on stock SIFT with the dotnet runtime.
+- **Evidence mounting** is read-only; NTFS volume images with a truncated backup-boot sector mount via
+  the kernel `ntfs3` driver (`mount -t ntfs3 -o ro <loop> /mnt/evidence`).
+- **Offline / air-gapped RAG** — if a GPU build of `torch`/sentence-transformers or the embedding model
+  is unavailable, the knowledge base falls back to an offline hashing embedder and seeds from the bundled
+  Hunt Evil process baseline + case IOCs (no network needed).
+- **Event-log scope** — disk_agent parses live security/system/RDP/PowerShell channels plus the most
+  recent rotated Security archives (bounded), and retains events **date-stratified** so the incident
+  window is never truncated away.
+- **Browser coverage** — all profiles of all installed browsers (Chrome/Edge/Brave + Firefox) are
+  analysed, auto-discovered from the evidence mount.
+
 ## Setup
 
 ### Prerequisites
@@ -415,7 +459,7 @@ DeepSIFT was designed knowing the competitive landscape. Here is what sets it ap
 - SANS SIFT Workstation (Ubuntu 20.04+)
 - Python 3.10+
 - Volatility 3, log2timeline, Sleuth Kit (pre-installed on SIFT)
-- EZ Tools at `/opt/zimmermantools/` (install with SIFT EZ Tools script)
+- EZ Tools at `/opt/zimmermantools/` (install with SIFT EZ Tools script) — run via the dotnet runtime
 
 ### Installation
 
@@ -435,7 +479,7 @@ python3 rag/ingest/run_all.py
 
 # Run tests
 pytest tests/
-# Expected: 32 passed
+# Expected: 39 passed
 ```
 
 ### Connect to Claude Code

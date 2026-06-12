@@ -331,10 +331,27 @@ When you identify suspicious activity, map it to ATT&CK techniques:
 - [x] Parser unit tests (32/32 passing)
 - [x] docs/architecture.md, docs/dataset.md, docs/devpost_submission.md
 
+### Completed — ROCBA validation (memory + disk)
+- [x] Ran DeepSIFT on SIFT VM against Rocba-Memory.raw + rocba-cdrive.e01 → analysis/findings.json
+- [x] Benchmark vs Protocol SIFT baseline: **DeepSIFT 4/4 (100%), Protocol SIFT 0/4, 0 hallucinations**
+- [x] RAG seeded offline (Hunt Evil baseline + ROCBA IOCs) — works without network/torch
+
+### SIFT-Linux runtime notes (important)
+- **EZ Tools**: invoke as `dotnet /opt/zimmermantools/<Tool>.dll` (subdir-aware, e.g.
+  `EvtxeCmd/EvtxECmd.dll`). PECmd may be absent → prefetch step no-ops gracefully.
+- **Evidence mount**: read-only via kernel `ntfs3` (`losetup -fr` + `mount -t ntfs3 -o ro`); needed
+  for NTFS volume images whose backup-boot sector is truncated (ntfs-3g refuses those).
+- **Offline RAG**: `ForensicKnowledgeBase` falls back to an offline hashing embedder when
+  torch/sentence-transformers or the model download is unavailable.
+- **disk_agent**: parses curated evtx set (live channels + recent Security archives), date-stratified
+  retention (≤120/day) so the incident window survives; clears its CSV output dir per run (avoids
+  multi-GB stale-output re-reads); LNK targets per-user `Recent` folders; browser_agent covers ALL
+  profiles of ALL browsers (Chrome/Edge/Brave + Firefox), auto-discovered from the mount.
+- **Benchmark scorer**: `must_identify` uses content-based indicator groups + co-occurrence (artifact
+  strings must appear together in one entry); prose mentions do not score. See
+  `rocba_ground_truth.json._scoring_note`.
+
 ### In Progress / TODO
-- [ ] Run DeepSIFT on SIFT VM against Rocba-Memory.raw → generate findings.json
-- [ ] Run benchmark: `python3 demo.py --image /cases/ROCBA/Rocba-Memory.raw --baseline /cases/ROCBA-BASELINE/analysis/findings.json`
-- [ ] Seed RAG on VM: `python3 rag/ingest/run_all.py`
 - [ ] Fill in TBD numbers in docs/devpost_submission.md
 - [ ] Record demo video
 - [ ] Submit to Devpost (deadline: June 15, 2026)

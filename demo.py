@@ -62,10 +62,28 @@ def _seed_rag(case_ioc_json: str = "") -> bool:
         count = stats["total_documents"]
 
         if count == 0:
-            logger.info("RAG knowledge base is empty — seeding MITRE ATT&CK (this may take a few minutes)...")
-            from rag.ingest.mitre_attack import ingest as ingest_mitre
-            n = ingest_mitre()
-            logger.info(f"Ingested {n} MITRE ATT&CK techniques")
+            # Offline-first seeding: the Hunt Evil process baseline and ROCBA case
+            # IOCs are bundled (no network), so RAG is useful even on an air-gapped
+            # VM. MITRE ATT&CK is attempted but degrades gracefully if the network
+            # is unavailable.
+            try:
+                n = kb.ingest_hunt_evil_baseline()
+                logger.info(f"Ingested {n} Hunt Evil process-baseline entries (offline)")
+            except Exception as e:
+                logger.warning(f"Hunt Evil baseline ingest failed: {e}")
+            try:
+                from rag.ingest.rocba_iocs import ingest_rocba_iocs
+                n = ingest_rocba_iocs()
+                logger.info(f"Ingested {n} ROCBA case IOC documents (offline)")
+            except Exception as e:
+                logger.warning(f"ROCBA IOC ingest failed: {e}")
+            try:
+                logger.info("Seeding MITRE ATT&CK (requires network)...")
+                from rag.ingest.mitre_attack import ingest as ingest_mitre
+                n = ingest_mitre()
+                logger.info(f"Ingested {n} MITRE ATT&CK techniques")
+            except Exception as e:
+                logger.warning(f"MITRE ATT&CK seeding skipped ({e}); offline sources still active")
 
         # Load case-specific IOCs if a JSON file was provided
         if case_ioc_json and Path(case_ioc_json).exists():

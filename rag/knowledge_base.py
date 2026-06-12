@@ -15,10 +15,31 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+class _OfflineEmbedder:
+    """Deterministic, dependency-light embedder for air-gapped / constrained hosts
+    (e.g. a SIFT VM with no GPU build of torch and a throttled uplink that cannot
+    pull the all-MiniLM model). Uses a hashing vectorizer over word n-grams — purely
+    lexical, but fully offline and good enough to ground IOC/keyword lookups when the
+    transformer model is unavailable. Exposes the SentenceTransformer.encode() API."""
+
+    def __init__(self, n_features: int = 384):
+        from sklearn.feature_extraction.text import HashingVectorizer
+        self.vec = HashingVectorizer(
+            n_features=n_features, alternate_sign=False, norm="l2",
+            ngram_range=(1, 2), stop_words="english",
+        )
+        self.backend = "offline-hashing-vectorizer"
+
+    def encode(self, texts):
+        import numpy as np
+        if isinstance(texts, str):
+            texts = [texts]
+        return np.asarray(self.vec.transform(texts).todense(), dtype="float32")
+
+
 class ForensicKnowledgeBase:
     def __init__(self, db_path: str | None = None):
         import chromadb
-        from sentence_transformers import SentenceTransformer
 
         if db_path is None:
             from mcp_server.config import RAG_DB_PATH, EMBED_MODEL
@@ -29,7 +50,17 @@ class ForensicKnowledgeBase:
 
         Path(db_path).mkdir(parents=True, exist_ok=True)
         self.client = chromadb.PersistentClient(path=db_path)
-        self.embed_model = SentenceTransformer(model_name)
+        # Prefer the semantic transformer; fall back to an offline embedder when
+        # torch/sentence-transformers or the model download is unavailable.
+        try:
+            from sentence_transformers import SentenceTransformer
+            self.embed_model = SentenceTransformer(model_name)
+            self.embed_backend = "sentence-transformers"
+        except Exception as e:
+            logger.warning(
+                f"sentence-transformers unavailable ({e}); using offline embedder")
+            self.embed_model = _OfflineEmbedder()
+            self.embed_backend = getattr(self.embed_model, "backend", "offline")
         self.collection = self.client.get_or_create_collection(
             name="forensic_knowledge",
             metadata={"hnsw:space": "cosine"},

@@ -1,111 +1,189 @@
 {
-  "case_id": "ROCBA-2020",
-  "case_name": "Fred Rocba Break-In and IP Theft",
-  "incident_date": "2020-11-13",
-  "system": "Windows 10 x64 Build 19041 (20H1) — Surface Laptop",
-  "timezone": "EST (UTC-5)",
-  "victim": "Fred Rocba (fredr), Stark Research Labs engineer",
-
-  "image_facts": {
-    "memory_image": "Rocba-Memory.raw",
-    "memory_size_gb": 18,
-    "memory_capture_time_utc": "2020-11-16 02:32:38",
-    "memory_capture_note": "Captured 3 days after the incident — Nov 13 activity NOT in memory",
-    "kernel_base": "0xf8025d600000",
-    "host_ip": "192.168.1.5",
-    "logged_in_user": "fredr",
-    "user_sid": "S-1-5-21-528816539-567677750-276746561-1002",
-    "volatility_version": "2.27.0"
+ "case_id": "ROCBA-2020",
+ "case_name": "Fred Rocba Break-In and IP Theft",
+ "incident_date": "2020-11-13",
+ "system": "Windows 10 x64 Build 19041 (20H1) \u2014 Surface Laptop",
+ "timezone": "EST (UTC-5)",
+ "victim": "Fred Rocba (fredr), Stark Research Labs engineer",
+ "image_facts": {
+  "memory_image": "Rocba-Memory.raw",
+  "memory_size_gb": 18,
+  "memory_capture_time_utc": "2020-11-16 02:32:38",
+  "memory_capture_note": "Captured 3 days after the incident \u2014 Nov 13 activity NOT in memory",
+  "kernel_base": "0xf8025d600000",
+  "host_ip": "192.168.1.5",
+  "logged_in_user": "fredr",
+  "user_sid": "S-1-5-21-528816539-567677750-276746561-1002",
+  "volatility_version": "2.27.0"
+ },
+ "known_facts": {
+  "fred_left_for_vacation": "2020-11-10",
+  "break_in_occurred": "2020-11-13 evening EST",
+  "system_was_logged_in": true,
+  "target": "SRL intellectual property",
+  "user_accounts": [
+   "frocba@stark-research-labs.com",
+   "fred.rocba@outlook.com",
+   "fred.rocba@gmail.com"
+  ],
+  "cloud_services_installed": [
+   "OneDrive (Work)",
+   "OneDrive (Personal)",
+   "Google Drive Classic",
+   "Google Drive File Stream",
+   "iCloud Drive",
+   "iCloud Photos",
+   "iCloud Services",
+   "Dropbox",
+   "Slack",
+   "Microsoft Teams"
+  ],
+  "browsers_installed": [
+   "Edge",
+   "Firefox",
+   "Chrome"
+  ]
+ },
+ "protocol_sift_baseline": {
+  "run_date": "2026-06-11",
+  "analysis_type": "memory_only",
+  "image_analyzed": "Rocba-Memory.raw",
+  "findings": {
+   "correctly_identified": [
+    "RDP brute-force attack from 81.30.144.115 and 213.202.233.104 (Nov 16, not Nov 13)",
+    "6 active cloud sync services running at capture time",
+    "User identity: Fred Rocba, frocba@stark-research-labs.com",
+    "Work email OST file cached locally (high-value exfiltration target)",
+    "No code injection / malware in memory",
+    "No malicious persistence in Run keys",
+    "MRC.exe correctly identified as course tool (benign)"
+   ],
+   "missed": [
+    "Nov 13 unauthorized access event \u2014 requires disk/event log analysis",
+    "Browser activity on Nov 13 \u2014 requires browser history from disk",
+    "Files accessed or exfiltrated on Nov 13 \u2014 requires LNK/Jump List/MFT",
+    "Specific executables run during break-in \u2014 requires Prefetch/Shimcache",
+    "Dropbox activity on Nov 13 \u2014 client not running at capture time"
+   ],
+   "false_positives": [],
+   "root_cause_of_gaps": "Memory captured 3 days after incident. Nov 13 evidence lives on disk only. Protocol SIFT performed no disk artifact analysis (no event logs, no browser history, no execution artifacts)."
   },
-
-  "known_facts": {
-    "fred_left_for_vacation": "2020-11-10",
-    "break_in_occurred": "2020-11-13 evening EST",
-    "system_was_logged_in": true,
-    "target": "SRL intellectual property",
-    "user_accounts": [
-      "frocba@stark-research-labs.com",
-      "fred.rocba@outlook.com",
-      "fred.rocba@gmail.com"
-    ],
-    "cloud_services_installed": [
-      "OneDrive (Work)",
-      "OneDrive (Personal)",
-      "Google Drive Classic",
-      "Google Drive File Stream",
-      "iCloud Drive",
-      "iCloud Photos",
-      "iCloud Services",
-      "Dropbox",
-      "Slack",
-      "Microsoft Teams"
-    ],
-    "browsers_installed": ["Edge", "Firefox", "Chrome"]
-  },
-
-  "protocol_sift_baseline": {
-    "run_date": "2026-06-11",
-    "analysis_type": "memory_only",
-    "image_analyzed": "Rocba-Memory.raw",
-    "findings": {
-      "correctly_identified": [
-        "RDP brute-force attack from 81.30.144.115 and 213.202.233.104 (Nov 16, not Nov 13)",
-        "6 active cloud sync services running at capture time",
-        "User identity: Fred Rocba, frocba@stark-research-labs.com",
-        "Work email OST file cached locally (high-value exfiltration target)",
-        "No code injection / malware in memory",
-        "No malicious persistence in Run keys",
-        "MRC.exe correctly identified as course tool (benign)"
-      ],
-      "missed": [
-        "Nov 13 unauthorized access event — requires disk/event log analysis",
-        "Browser activity on Nov 13 — requires browser history from disk",
-        "Files accessed or exfiltrated on Nov 13 — requires LNK/Jump List/MFT",
-        "Specific executables run during break-in — requires Prefetch/Shimcache",
-        "Dropbox activity on Nov 13 — client not running at capture time"
-      ],
-      "false_positives": [],
-      "root_cause_of_gaps": "Memory captured 3 days after incident. Nov 13 evidence lives on disk only. Protocol SIFT performed no disk artifact analysis (no event logs, no browser history, no execution artifacts)."
+  "iocs_from_memory": {
+   "hostile_ips": [
+    {
+     "ip": "81.30.144.115",
+     "connections": 59,
+     "confidence": "HIGH",
+     "note": "Nov 16 RDP attack, not Nov 13 incident"
     },
-    "iocs_from_memory": {
-      "hostile_ips": [
-        {"ip": "81.30.144.115", "connections": 59, "confidence": "HIGH", "note": "Nov 16 RDP attack, not Nov 13 incident"},
-        {"ip": "213.202.233.104", "connections": 54, "confidence": "HIGH", "note": "Nov 16 RDP attack, not Nov 13 incident"},
-        {"ip": "201.193.188.114", "connections": 3, "confidence": "MEDIUM", "note": "Early Nov 16 probe"},
-        {"ip": "81.19.209.101", "connections": 2, "confidence": "MEDIUM", "note": "Minor Nov 16 probe"}
-      ],
-      "suspicious_files": [
-        {"path": "D:\\Tools\\MRC.exe", "pid": 29440, "verdict": "benign_course_tool"}
-      ]
+    {
+     "ip": "213.202.233.104",
+     "connections": 54,
+     "confidence": "HIGH",
+     "note": "Nov 16 RDP attack, not Nov 13 incident"
     },
-    "score": {
-      "must_identify_found": 1,
-      "must_identify_total": 4,
-      "accuracy_score": 0.25,
-      "hallucination_count": 0,
-      "notes": "Protocol SIFT correctly reported what was in memory but the memory is from Nov 16, not Nov 13. The core incident evidence requires disk analysis."
+    {
+     "ip": "201.193.188.114",
+     "connections": 3,
+     "confidence": "MEDIUM",
+     "note": "Early Nov 16 probe"
+    },
+    {
+     "ip": "81.19.209.101",
+     "connections": 2,
+     "confidence": "MEDIUM",
+     "note": "Minor Nov 16 probe"
     }
+   ],
+   "suspicious_files": [
+    {
+     "path": "D:\\Tools\\MRC.exe",
+     "pid": 29440,
+     "verdict": "benign_course_tool"
+    }
+   ]
   },
-
-  "scoring_criteria": {
-    "must_identify": [
-      "Unauthorized access event on 2020-11-13 (requires disk — event logs / browser history)",
-      "Evidence of file access or exfiltration (LNK files, Jump Lists, browser history, MFT)",
-      "Cloud storage service usage during incident window (browser history / Dropbox logs)",
-      "Browser activity during incident window (Nov 13 evening EST)"
-    ],
-    "bonus_identify": [
-      "Specific files or projects accessed by the unauthorized user",
-      "Dropbox activity (client was not running at memory capture, disk artifacts needed)",
-      "Attacker entry method (RDP? Physical access? Dropbox sync?)",
-      "Timeline reconstruction from multiple disk artifacts"
-    ],
-    "should_not_hallucinate": [
-      "Process names not present in evidence",
-      "Network connections not observed in memory or disk logs",
-      "Specific stolen file names without supporting evidence",
-      "Attacker identity beyond what evidence shows",
-      "Claiming Nov 16 RDP attacks are the Nov 13 incident (different event)"
-    ]
+  "score": {
+   "must_identify_found": 1,
+   "must_identify_total": 4,
+   "accuracy_score": 0.25,
+   "hallucination_count": 0,
+   "notes": "Protocol SIFT correctly reported what was in memory but the memory is from Nov 16, not Nov 13. The core incident evidence requires disk analysis."
   }
+ },
+ "scoring_criteria": {
+  "must_identify": [
+   {
+    "name": "Unauthorized access event on 2020-11-13 (event logs)",
+    "groups": [
+     [
+      "2020-11-13",
+      "2020-11-14"
+     ],
+     [
+      "[event 4",
+      "[event 7",
+      "[event 1"
+     ]
+    ],
+    "co_occur": true
+   },
+   {
+    "name": "Evidence of file access or exfiltration (LNK / downloads / MFT)",
+    "groups": [
+     [
+      "(accessed ",
+      ".lnk",
+      "\\recent\\",
+      ".docx",
+      ".xlsx",
+      ".pptx",
+      ".pdf"
+     ]
+    ]
+   },
+   {
+    "name": "Cloud storage service usage (browser artifacts \u2014 cloud domains)",
+    "groups": [
+     [
+      "onedrive.live.com",
+      "drive.google.com",
+      "docs.google.com",
+      "dropbox.com",
+      "icloud.com",
+      "1drv.ms"
+     ]
+    ]
+   },
+   {
+    "name": "Browser activity during incident window (Nov 13)",
+    "groups": [
+     [
+      "2020-11-13",
+      "2020-11-14"
+     ],
+     [
+      "http://",
+      "https://"
+     ]
+    ],
+    "co_occur": true
+   }
+  ],
+  "bonus_identify": [
+   "Specific files or projects accessed by the unauthorized user",
+   "Dropbox activity (client was not running at memory capture, disk artifacts needed)",
+   "Attacker entry method (RDP? Physical access? Dropbox sync?)",
+   "Timeline reconstruction from multiple disk artifacts"
+  ],
+  "should_not_hallucinate": [
+   "Process names not present in evidence",
+   "Network connections not observed in memory or disk logs",
+   "Specific stolen file names without supporting evidence",
+   "Attacker identity beyond what evidence shows",
+   "Claiming Nov 16 RDP attacks are the Nov 13 incident (different event)"
+  ],
+  "_scoring_note": "must_identify uses CONTENT-based indicator groups (extracted-artifact strings: ISO dates, event-log entries, cloud DOMAINS, URLs, file paths) \u2014 a criterion is satisfied only when each group has >=1 hit in the findings TEXT VALUES. Prose mentions (e.g. 'Nov 13') and memory process names (e.g. OneDrive.exe) do NOT satisfy them. Replaces the broken all-words matcher. Identical for both systems.",
+  "_window_note": "Incident window 'Nov 13 evening EST' maps to UTC 2020-11-13T23:00 .. 2020-11-14 in artifacts; both ISO dates accepted."
+ }
 }

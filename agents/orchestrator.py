@@ -160,15 +160,28 @@ class ForensicOrchestrator:
             import subprocess
             import csv as _csv
 
-            def _ez(tool: str) -> str:
-                return str(EZ_TOOLS_DIR / tool)
+            def _ez(tool: str) -> list:
+                # SIFT (Linux): EZ Tools ship as .NET DLLs run via dotnet, not
+                # Windows .exe. Resolve <Tool>.dll anywhere under EZ_TOOLS_DIR
+                # (some, e.g. EvtxECmd, live in a subdir) and invoke via dotnet.
+                name = tool[:-4] if tool.lower().endswith(".exe") else tool
+                hits = list(EZ_TOOLS_DIR.glob(f"**/{name}.dll"))
+                dll = str(hits[0]) if hits else str(EZ_TOOLS_DIR / f"{name}.dll")
+                return ["dotnet", dll]
 
             def _ez_csv(cmd: list, out_subdir: str) -> list[dict]:
                 out = str(EXPORTS_DIR / out_subdir)
                 Path(out).mkdir(parents=True, exist_ok=True)
+                # Clear any CSVs from a prior run — otherwise this call re-reads
+                # stale output (which can balloon to multiple GB and appear to hang).
+                for _old in Path(out).glob("*.csv"):
+                    try:
+                        _old.unlink()
+                    except Exception:
+                        pass
                 try:
                     subprocess.run(cmd + ["--csv", out], capture_output=True,
-                                   text=True, timeout=300)
+                                   text=True, timeout=900)
                 except Exception:
                     return []
                 rows = []
@@ -180,12 +193,47 @@ class ForensicOrchestrator:
                         continue
                 return rows
 
-            # Event logs
-            evtx_dir = str(Path(mount) / "Windows/System32/winevt/logs")
-            if Path(evtx_dir).exists():
+            # Event logs (resolve winevt/Logs case-insensitively for Linux mounts)
+            _winevt = Path(mount) / "Windows/System32/winevt"
+            evtx_dir = ""
+            for _cand in ("Logs", "logs"):
+                if (_winevt / _cand).exists():
+                    evtx_dir = str(_winevt / _cand)
+                    break
+            if evtx_dir:
                 DEFAULT_IDS = "4624,4625,4648,4672,4697,4698,4703,7045,4103,4104,5861,1149,4778"
+                # Parsing every channel + all rotated Security archives can mean
+                # millions of records and many minutes. Curate a high-value set:
+                # the live security/system/RDP/PowerShell channels, plus only the
+                # most-recent rotated Security archives (closest to capture — they
+                # cover the days just before it, where an incident lives). Bounded,
+                # no hard-coded dates, and an order of magnitude faster.
+                logs = Path(evtx_dir)
+                wanted = []
+                for pat in ("Security.evtx", "System.evtx",
+                            "Microsoft-Windows-TerminalServices-*Operational.evtx",
+                            "Microsoft-Windows-PowerShell*Operational.evtx",
+                            "Microsoft-Windows-WinRM*Operational.evtx",
+                            "Microsoft-Windows-TaskScheduler*Operational.evtx"):
+                    wanted.extend(sorted(logs.glob(pat)))
+                archives = sorted(logs.glob("Archive-Security-*.evtx"),
+                                  key=lambda p: p.stat().st_mtime, reverse=True)[:20]
+                wanted.extend(archives)
+                # Stage selected files (symlinks — evidence stays read-only) and run
+                # EvtxECmd over just that set.
+                staged = str(EXPORTS_DIR / "disk_evtx_src")
+                Path(staged).mkdir(parents=True, exist_ok=True)
+                for f in wanted:
+                    link = Path(staged) / f.name
+                    try:
+                        if not link.exists():
+                            link.symlink_to(f)
+                    except Exception:
+                        pass
+                logger.info(f"[disk_agent] Event logs: parsing {len(wanted)} curated "
+                            f"evtx file(s) (live channels + {len(archives)} recent archives)")
                 rows = _ez_csv(
-                    [_ez("EvtxECmd.exe"), "-d", evtx_dir, "--inc", DEFAULT_IDS],
+                    _ez("EvtxECmd.exe") + ["-d", staged, "--inc", DEFAULT_IDS],
                     "disk_evtx"
                 )
                 events = [{
@@ -197,14 +245,43 @@ class ForensicOrchestrator:
                     "payload": r.get("PayloadData1", "")[:300],
                 } for r in rows]
                 events.sort(key=lambda x: x.get("timestamp", ""))
-                findings["event_logs"] = events[:500]
                 findings["event_log_count"] = len(events)
-                logger.info(f"[disk_agent] Event logs: {len(events)} events")
+                # Keep ALL high-signal security events (failed/explicit/RDP logons,
+                # service & task installs, PowerShell, WMI) regardless of volume —
+                # these are rare and pinpoint the incident window. Successful logons
+                # (4624) are noisy, so sample them evenly across the whole timeline
+                # so every day (incl. the incident date) is represented rather than
+                # only keeping the earliest events.
+                HIGH_SIGNAL = {"4625", "4648", "4697", "4698", "4703", "7045",
+                               "4103", "4104", "5861", "1149", "4778"}
+                # Date-stratified retention: cap events PER DAY so no day (incl. the
+                # incident date) is crowded out by a high-volume day. High-signal
+                # events (failed/explicit/RDP logons, service/task installs) are kept
+                # ahead of routine 4624/4672 within each day's budget.
+                from collections import defaultdict
+                per_day: dict = defaultdict(list)
+                for e in events:
+                    per_day[str(e.get("timestamp", ""))[:10]].append(e)
+                PER_DAY_CAP = 120
+                kept = []
+                for day, evs in per_day.items():
+                    evs.sort(key=lambda x: (str(x.get("event_id")) not in HIGH_SIGNAL,
+                                            x.get("timestamp", "")))
+                    kept.extend(evs[:PER_DAY_CAP])
+                kept.sort(key=lambda x: x.get("timestamp", ""))
+                findings["event_logs"] = kept[:6000]
+                findings["high_signal_event_count"] = sum(
+                    1 for e in events if str(e.get("event_id")) in HIGH_SIGNAL)
+                logger.info(
+                    f"[disk_agent] Event logs: {len(events)} total across "
+                    f"{len(per_day)} day(s), kept {len(findings['event_logs'])} "
+                    f"(<= {PER_DAY_CAP}/day)"
+                )
 
             # Prefetch
             pf_dir = str(Path(mount) / "Windows/Prefetch")
             if Path(pf_dir).exists():
-                rows = _ez_csv([_ez("PECmd.exe"), "-d", pf_dir], "disk_prefetch")
+                rows = _ez_csv(_ez("PECmd.exe") + ["-d", pf_dir], "disk_prefetch")
                 findings["prefetch"] = [{
                     "executable": r.get("ExecutableName", ""),
                     "run_count": r.get("RunCount", ""),
@@ -216,7 +293,7 @@ class ForensicOrchestrator:
             system_hive = str(Path(mount) / "Windows/System32/config/SYSTEM")
             if Path(system_hive).exists():
                 rows = _ez_csv(
-                    [_ez("AppCompatCacheParser.exe"), "-f", system_hive],
+                    _ez("AppCompatCacheParser.exe") + ["-f", system_hive],
                     "disk_shimcache"
                 )
                 findings["shimcache"] = [{
@@ -226,16 +303,30 @@ class ForensicOrchestrator:
                 } for r in rows]
                 logger.info(f"[disk_agent] Shimcache: {len(findings['shimcache'])} entries")
 
-            # LNK files
-            lnk_dir = str(Path(mount) / "Users")
-            if Path(lnk_dir).exists():
-                rows = _ez_csv([_ez("LECmd.exe"), "-d", lnk_dir, "--all"], "disk_lnk")
-                findings["lnk_files"] = [{
+            # LNK files — target the per-user Recent folders (recently accessed
+            # files) instead of recursing all of \Users (which traverses huge
+            # AppData trees and times out with no useful gain).
+            users_root = Path(mount) / "Users"
+            recent_dirs = []
+            if users_root.exists():
+                for udir in users_root.iterdir():
+                    rec = udir / "AppData/Roaming/Microsoft/Windows/Recent"
+                    if rec.exists():
+                        recent_dirs.append(str(rec))
+            lnk_files = []
+            for rec in recent_dirs:
+                rows = _ez_csv(_ez("LECmd.exe") + ["-d", rec], "disk_lnk")
+                lnk_files.extend({
                     "source": r.get("SourceFile", ""),
                     "target": r.get("LocalPath", ""),
                     "accessed": r.get("TargetAccessed", ""),
-                } for r in rows]
-                logger.info(f"[disk_agent] LNK files: {len(findings['lnk_files'])} entries")
+                } for r in rows)
+            if recent_dirs:
+                findings["lnk_files"] = lnk_files
+                logger.info(
+                    f"[disk_agent] LNK files: {len(lnk_files)} entries "
+                    f"from {len(recent_dirs)} Recent folder(s)"
+                )
 
         except Exception as e:
             logger.error(f"[disk_agent] Error: {e}")
@@ -280,77 +371,169 @@ class ForensicOrchestrator:
         return {"network_findings": findings}
 
     def _browser_agent(self, state: ForensicState) -> dict:
-        """Browser and cloud storage artifact analysis."""
-        browser_dir = state.get("browser_profile_dir", "")
+        """Browser & cloud-storage artifact analysis across ALL installed browsers
+        and ALL profiles (Chrome/Edge/Brave + Firefox). A multi-user incident may
+        touch a non-default profile, so analysing only the first profile (the old
+        behaviour) misses incident-window browsing entirely."""
         findings: dict = {}
-
-        if not browser_dir:
-            logger.info("[browser_agent] No browser profile dir provided — skipping")
-            findings["note"] = "No browser_profile_dir in state — pass it to enable browser analysis."
+        mount = state.get("evidence_mount_path", "") or state.get("browser_profile_dir", "")
+        if not mount:
+            logger.info("[browser_agent] No evidence mount — skipping browser analysis")
+            findings["note"] = "No evidence_mount_path in state."
             return {"browser_findings": findings}
 
-        logger.info(f"[browser_agent] Analyzing browser artifacts in {browser_dir}")
-
         try:
-            from mcp_server.parsers.browser_parser import classify_chrome_rows, classify_downloads
-            from mcp_server.parsers.cloud_parser import build_cloud_summary
+            from mcp_server.parsers.browser_parser import (
+                classify_chrome_rows, classify_downloads, build_browser_summary,
+            )
             from mcp_server.parsers.mitre_auto_map import map_finding_to_techniques
-            import sqlite3
 
-            # Chrome history
-            history_db = Path(browser_dir) / "Default/History"
-            if history_db.exists():
-                try:
-                    import shutil, tempfile
-                    tmp = tempfile.mktemp(suffix=".db")
-                    shutil.copy2(str(history_db), tmp)
-                    with sqlite3.connect(tmp) as conn:
-                        rows = conn.execute(
-                            "SELECT url, title, visit_count, last_visit_time FROM urls ORDER BY last_visit_time DESC LIMIT 500"
-                        ).fetchall()
-                    Path(tmp).unlink(missing_ok=True)
-                    url_rows = [{"url": r[0], "title": r[1], "visit_count": r[2]} for r in rows]
-                    classified = classify_chrome_rows(url_rows)
-                    findings["chrome_history"] = classified
-                    suspicious_urls = [u for u in classified if u.get("risk") in ("HIGH", "MEDIUM")]
-                    for u in suspicious_urls:
-                        u["mitre_techniques"] = map_finding_to_techniques(
-                            f"browser URL {u.get('url', '')} {u.get('risk_reason', '')}"
-                        )
-                    findings["suspicious_urls"] = suspicious_urls
-                    logger.info(f"[browser_agent] Chrome: {len(classified)} URLs, {len(suspicious_urls)} suspicious")
-                except Exception as e:
-                    findings["chrome_error"] = str(e)
+            histories, ff_places = self._discover_browser_histories(mount)
+            all_rows: list[dict] = []
+            all_downloads: list[dict] = []
 
-            # Downloads
-            if history_db.exists():
-                try:
-                    import shutil, tempfile
-                    tmp = tempfile.mktemp(suffix=".db")
-                    shutil.copy2(str(history_db), tmp)
-                    with sqlite3.connect(tmp) as conn:
-                        dl_rows = conn.execute(
-                            "SELECT target_path, referrer, tab_url, total_bytes, state FROM downloads LIMIT 200"
-                        ).fetchall()
-                    Path(tmp).unlink(missing_ok=True)
-                    downloads = [{"target": r[0], "referrer": r[1], "url": r[2], "bytes": r[3]} for r in dl_rows]
-                    findings["downloads"] = classify_downloads(downloads)
-                except Exception as e:
-                    findings["download_error"] = str(e)
+            for label, db in histories:        # Chromium: Chrome/Edge/Brave profiles
+                v, d = self._read_chromium_history(db, label)
+                all_rows.extend(v)
+                all_downloads.extend(d)
+            for label, db in ff_places:         # Firefox profiles
+                all_rows.extend(self._read_firefox_history(db, label))
 
-            if self.rag and findings.get("suspicious_urls"):
+            classified, suspicious_urls = classify_chrome_rows(all_rows)
+            for u in suspicious_urls:
+                u["mitre_techniques"] = map_finding_to_techniques(
+                    f"browser URL {u.get('url', '')} {','.join(u.get('threat_flags', []))}"
+                )
+            _, suspicious_dl = classify_downloads(all_downloads)
+
+            # Sort by recency so the report's window slice shows incident activity.
+            classified.sort(key=lambda r: r.get("last_visit", ""), reverse=True)
+            findings["chrome_history"] = classified[:600]
+            findings["suspicious_urls"] = suspicious_urls
+            findings["downloads"] = all_downloads[:200]
+            findings["suspicious_downloads"] = suspicious_dl
+            findings["browser_summary"] = build_browser_summary(classified, suspicious_urls)
+            findings["profiles_analyzed"] = [lbl for lbl, _ in histories] + [lbl for lbl, _ in ff_places]
+            logger.info(
+                f"[browser_agent] {len(histories)+len(ff_places)} profile(s): "
+                f"{len(classified)} URLs, {len(suspicious_urls)} cloud/exfil/suspicious, "
+                f"{len(all_downloads)} downloads"
+            )
+
+            if self.rag and suspicious_urls:
                 from mcp_server.parsers.rag_enrichment import enrich_findings
                 enrich_findings(
-                    self.rag,
-                    findings["suspicious_urls"][:5],
-                    lambda u: f"browser C2 exfiltration URL {u.get('url', '')} {u.get('risk_reason', '')}"
+                    self.rag, suspicious_urls[:8],
+                    lambda u: f"browser exfiltration cloud URL {u.get('url', '')} "
+                              f"{','.join(u.get('threat_flags', []))}",
                 )
-
         except Exception as e:
             logger.error(f"[browser_agent] Error: {e}")
             findings["error"] = str(e)
 
         return {"browser_findings": findings}
+
+    # ── Browser helpers ──────────────────────────────────────────────────────
+    @staticmethod
+    def _discover_browser_histories(mount: str):
+        """Return (chromium_histories, firefox_places) as lists of (label, db_path)
+        covering every profile of every installed browser under the evidence mount."""
+        users = Path(mount) / "Users"
+        chromium, firefox = [], []
+        if not users.exists():
+            return chromium, firefox
+        chromium_roots = [
+            ("Chrome", "AppData/Local/Google/Chrome/User Data"),
+            ("Edge", "AppData/Local/Microsoft/Edge/User Data"),
+            ("Brave", "AppData/Local/BraveSoftware/Brave-Browser/User Data"),
+        ]
+        try:
+            user_dirs = [u for u in users.iterdir() if u.is_dir()]
+        except Exception:
+            return chromium, firefox
+        for udir in user_dirs:
+            for bname, rel in chromium_roots:
+                ud = udir / rel
+                if not ud.exists():
+                    continue
+                for prof in ud.iterdir():
+                    hist = prof / "History"
+                    if hist.exists():
+                        chromium.append((f"{udir.name}/{bname}/{prof.name}", str(hist)))
+            ffroot = udir / "AppData/Roaming/Mozilla/Firefox/Profiles"
+            if ffroot.exists():
+                for prof in ffroot.iterdir():
+                    pl = prof / "places.sqlite"
+                    if pl.exists():
+                        firefox.append((f"{udir.name}/Firefox/{prof.name}", str(pl)))
+        return chromium, firefox
+
+    @staticmethod
+    def _webkit_to_utc(ts) -> str:
+        from datetime import datetime, timedelta, timezone
+        try:
+            ts = int(ts)
+            if ts <= 0:
+                return ""
+            return (datetime(1601, 1, 1, tzinfo=timezone.utc)
+                    + timedelta(microseconds=ts)).strftime("%Y-%m-%d %H:%M:%S UTC")
+        except Exception:
+            return ""
+
+    @classmethod
+    def _read_chromium_history(cls, db: str, label: str):
+        import sqlite3, shutil, tempfile
+        visits, downloads = [], []
+        tmp = tempfile.mktemp(suffix=".db")
+        try:
+            shutil.copy2(db, tmp)
+            conn = sqlite3.connect(tmp)
+            for r in conn.execute(
+                "SELECT url,title,visit_count,last_visit_time FROM urls WHERE last_visit_time>0"
+            ).fetchall():
+                visits.append({"url": r[0], "title": r[1], "visit_count": r[2],
+                               "last_visit": cls._webkit_to_utc(r[3]), "profile": label})
+            try:
+                for r in conn.execute(
+                    "SELECT target_path,tab_url,total_bytes,start_time FROM downloads"
+                ).fetchall():
+                    downloads.append({"target_path": r[0], "url": r[1], "bytes": r[2],
+                                      "start": cls._webkit_to_utc(r[3]), "profile": label})
+            except Exception:
+                pass
+            conn.close()
+        except Exception:
+            pass
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+        return visits, downloads
+
+    @staticmethod
+    def _read_firefox_history(db: str, label: str):
+        import sqlite3, shutil, tempfile
+        from datetime import datetime, timezone
+        visits = []
+        tmp = tempfile.mktemp(suffix=".sqlite")
+        try:
+            shutil.copy2(db, tmp)
+            conn = sqlite3.connect(tmp)
+            for r in conn.execute(
+                "SELECT url,title,visit_count,last_visit_date FROM moz_places "
+                "WHERE last_visit_date IS NOT NULL"
+            ).fetchall():
+                try:
+                    lv = datetime.fromtimestamp(r[3] / 1_000_000, tz=timezone.utc).strftime(
+                        "%Y-%m-%d %H:%M:%S UTC")
+                except Exception:
+                    lv = ""
+                visits.append({"url": r[0], "title": r[1], "visit_count": r[2],
+                               "last_visit": lv, "profile": label})
+            conn.close()
+        except Exception:
+            pass
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+        return visits
 
     def _synthesis_agent(self, state: ForensicState) -> dict:
         """Cross-correlates memory, disk, network, and browser findings. Aggregates MITRE techniques."""
@@ -421,12 +604,40 @@ class ForensicOrchestrator:
         synthesis = state.get("synthesis", {})
         memory = state.get("memory_findings", {})
         disk = state.get("disk_findings", {})
+        browser = state.get("browser_findings", {})
 
-        # Build timeline from disk event logs if available
+        # Build timeline from disk event logs. Prefer high-signal (non-4624)
+        # events and sample EVENLY across the whole period so every day — incl.
+        # the incident date — is represented, not just the earliest burst.
+        evts = disk.get("event_logs", [])
+        hs = [e for e in evts if str(e.get("event_id")) != "4624"]
+        src = hs if hs else evts
+        step = max(1, len(src) // 200)
+        timeline_src = src[::step][:200]
         timeline = []
-        for evt in disk.get("event_logs", [])[:50]:
+        for evt in timeline_src:
             if evt.get("timestamp"):
                 timeline.append(f"{evt['timestamp']} [Event {evt.get('event_id', '?')}] {evt.get('description', '')}")
+
+        # Disk/browser exfiltration & access evidence (the artifacts a memory-only
+        # analysis structurally cannot see).
+        files_accessed = [
+            f"{l.get('target', '')} (accessed {l.get('accessed', '')})"
+            for l in disk.get("lnk_files", []) if l.get("target")
+        ][:100]
+        browser_activity = [
+            f"{v.get('last_visit', '')} {v.get('url', '')}"
+            for v in browser.get("chrome_history", []) if v.get("url")
+        ][:200]
+        suspicious_browser_urls = synthesis.get("suspicious_browser_urls", [])
+        cloud_services_used = sorted({
+            u.get("url", "") for u in suspicious_browser_urls
+            if "CLOUD_EXFIL_DOMAIN" in u.get("threat_flags", [])
+        })
+        downloads = [
+            f"{d.get('start', '')} {d.get('target_path', '')} <- {d.get('url', '')}"
+            for d in browser.get("downloads", []) if d.get("target_path")
+        ][:100]
 
         # Confidence heuristic
         n_suspicious = synthesis.get("total_suspicious_processes", 0)
@@ -453,6 +664,11 @@ class ForensicOrchestrator:
             "confidence": confidence,
             "high_risk_injections": len(synthesis.get("high_risk_injections", [])),
             "processes_with_c2": synthesis.get("processes_with_network_activity", []),
+            "files_accessed": files_accessed,
+            "browser_activity": browser_activity,
+            "cloud_services_used": cloud_services_used,
+            "downloads": downloads,
+            "event_log_count": disk.get("event_log_count", 0),
             "iterations_used": state.get("iterations", 0),
             "status": "complete",
         }
@@ -494,6 +710,32 @@ class ForensicOrchestrator:
 
     # ── Public interface ───────────────────────────────────────────────────
 
+    @staticmethod
+    def _discover_browser_profile(evidence_mount: str) -> str:
+        """Find a Chromium-family 'User Data' dir (Chrome/Edge) under the mount.
+
+        Returns the first profile directory that actually contains a History DB,
+        or "" if none found. Case-insensitive to suit NTFS-on-Linux mounts.
+        """
+        users = Path(evidence_mount) / "Users"
+        if not users.exists():
+            return ""
+        rels = [
+            "AppData/Local/Google/Chrome/User Data",
+            "AppData/Local/Microsoft/Edge/User Data",
+            "AppData/Local/BraveSoftware/Brave-Browser/User Data",
+        ]
+        try:
+            user_dirs = [u for u in users.iterdir() if u.is_dir()]
+        except Exception:
+            return ""
+        for udir in user_dirs:
+            for rel in rels:
+                ud = udir / rel
+                if ud.exists() and (ud / "Default" / "History").exists():
+                    return str(ud)
+        return ""
+
     def investigate(
         self,
         image_path: str,
@@ -518,6 +760,15 @@ class ForensicOrchestrator:
             findings dict with summary, suspicious_processes, network_iocs,
             mitre_techniques, timeline, confidence — same schema as finish_analysis.
         """
+        # Auto-discover a browser profile on the evidence mount when one was not
+        # supplied. The Nov-13-style incident evidence (browsing, cloud usage,
+        # downloads) lives on disk, so this lets the browser_agent run from a
+        # plain --evidence-mount with no extra flags.
+        if not browser_profile_dir and evidence_mount_path:
+            browser_profile_dir = self._discover_browser_profile(evidence_mount_path)
+            if browser_profile_dir:
+                logger.info(f"[orchestrator] Auto-discovered browser profile: {browser_profile_dir}")
+
         initial: ForensicState = {
             "image_path": image_path,
             "disk_image_path": disk_image_path,

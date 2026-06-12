@@ -9,6 +9,27 @@ class BenchmarkScorer:
     def __init__(self, ground_truth_path: str):
         with open(ground_truth_path, encoding="utf-8") as f:
             self.ground_truth = json.load(f)
+        self._last_findings: dict = {}
+
+    @staticmethod
+    def _leaf_strings(obj) -> list[str]:
+        """Flatten a findings dict into individual lowercase leaf strings, so a
+        criterion needing co-occurrence is tested within ONE artifact entry."""
+        out: list[str] = []
+
+        def walk(o):
+            if isinstance(o, str):
+                out.append(o.lower())
+            elif isinstance(o, dict):
+                for v in o.values():
+                    walk(v)
+            elif isinstance(o, (list, tuple)):
+                for v in o:
+                    walk(v)
+            elif o is not None:
+                out.append(str(o).lower())
+        walk(obj)
+        return out
 
     def score(self, findings: dict) -> dict:
         """
@@ -25,9 +46,10 @@ class BenchmarkScorer:
         must_identify = self.ground_truth.get("scoring_criteria", {}).get("must_identify", [])
         should_not_hallucinate = self.ground_truth.get("scoring_criteria", {}).get("should_not_hallucinate", [])
 
+        self._last_findings = findings
         summary_text = str(findings).lower()
 
-        tp = self._count_matches(must_identify, summary_text)
+        tp, matched = self._count_matches(must_identify, summary_text)
         missed = len(must_identify) - tp
         hallucinations = self._detect_hallucinations(findings, should_not_hallucinate)
         fp = len(hallucinations)
@@ -44,18 +66,49 @@ class BenchmarkScorer:
             "missed_artifacts": missed,
             "hallucinations": fp,
             "hallucination_details": hallucinations,
+            "matched_criteria": matched,
             "accuracy_score": round(accuracy, 3),
             "hallucination_rate": round(hall_rate, 3),
             "must_identify_coverage": f"{tp}/{len(must_identify)}",
         }
 
-    def _count_matches(self, criteria: list[str], text: str) -> int:
+    def _count_matches(self, criteria: list, text: str) -> tuple[int, list[str]]:
+        """Count satisfied must-identify criteria.
+
+        Supports two criterion forms:
+          * dict {"name", "groups": [[syn, ...], ...]} — satisfied when EACH group
+            has at least one synonym present (indicator-based; the sound method).
+          * str (legacy) — satisfied only if every whitespace-token appears. This
+            requires verbatim presence of an entire descriptive sentence and so
+            scores even a perfect analysis at 0; kept only for back-compat.
+        """
+        leaves = self._leaf_strings(self._last_findings) if self._last_findings else []
         count = 0
+        matched: list[str] = []
         for criterion in criteria:
-            keywords = criterion.lower().split()
-            if all(kw in text for kw in keywords):
+            if isinstance(criterion, dict):
+                groups = criterion.get("groups", [])
+                if criterion.get("co_occur"):
+                    # Every group's synonym set must hit within ONE finding entry,
+                    # so e.g. an incident DATE and an event/URL token must appear
+                    # together — not be matched from two unrelated fields.
+                    ok = bool(groups) and any(
+                        all(any(str(syn).lower() in leaf for syn in group) for group in groups)
+                        for leaf in leaves
+                    )
+                else:
+                    ok = bool(groups) and all(
+                        any(str(syn).lower() in text for syn in group) for group in groups
+                    )
+                label = criterion.get("name", str(criterion))
+            else:
+                keywords = str(criterion).lower().split()
+                ok = all(kw in text for kw in keywords)
+                label = criterion
+            if ok:
                 count += 1
-        return count
+                matched.append(label)
+        return count, matched
 
     def _detect_hallucinations(self, findings: dict, anti_hallucination_rules: list[str]) -> list[str]:
         """Flag findings that match known-bad hallucination patterns."""
