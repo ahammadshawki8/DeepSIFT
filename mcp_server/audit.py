@@ -176,8 +176,109 @@ def log_tool_execution(
         "error": error,
     }
 
+    # Tamper-evident hash chain: each entry binds to the hash of the previous one,
+    # so altering or deleting any past entry breaks the chain (verify_audit_chain()).
+    prev_hash = _read_chain_head(analysis_dir)
+    entry["prev_hash"] = prev_hash
+    entry["entry_hash"] = _entry_hash(prev_hash, entry)
+    _write_chain_head(analysis_dir, entry["entry_hash"])
+
     audit_log = analysis_dir / "forensic_audit.log"
     with open(audit_log, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
 
     return entry
+
+
+# ── Tamper-evident hash chain ───────────────────────────────────────────────────
+
+_GENESIS = "0" * 64
+
+
+def _entry_hash(prev_hash: str, entry: dict) -> str:
+    """SHA-256 over (prev_hash + canonical entry without its own chain fields)."""
+    core = {k: entry[k] for k in (
+        "audit_id", "timestamp", "tool", "command", "raw_output_sha256",
+        "raw_output_file", "result_summary", "error") if k in entry}
+    payload = prev_hash + json.dumps(core, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _chain_head_file(analysis_dir):
+    return analysis_dir / ".audit_chain_head"
+
+
+def _read_chain_head(analysis_dir) -> str:
+    f = _chain_head_file(analysis_dir)
+    try:
+        return f.read_text().strip() or _GENESIS
+    except Exception:
+        return _GENESIS
+
+
+def _write_chain_head(analysis_dir, head: str) -> None:
+    try:
+        _chain_head_file(analysis_dir).write_text(head)
+    except Exception:
+        pass
+
+
+def begin_case_audit() -> None:
+    """Start a fresh, self-consistent audit chain for a new investigation.
+
+    Archives any existing forensic_audit.log (so prior runs are preserved, not lost)
+    and resets the chain head to genesis. Call at the start of an investigation so the
+    case's chain of custody verifies cleanly end to end.
+    """
+    _, analysis_dir = _get_dirs()
+    Path(analysis_dir).mkdir(parents=True, exist_ok=True)
+    log = analysis_dir / "forensic_audit.log"
+    if log.exists() and log.stat().st_size > 0:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        try:
+            log.rename(analysis_dir / f"forensic_audit.{ts}.log.bak")
+        except Exception:
+            pass
+    head = _chain_head_file(analysis_dir)
+    try:
+        if head.exists():
+            head.unlink()
+    except Exception:
+        pass
+
+
+def verify_audit_chain(audit_log_path: str = "") -> dict:
+    """Recompute the hash chain over forensic_audit.log and report integrity.
+
+    Returns {"ok": bool, "entries": n, "broken_at": idx|None, "head": hash}.
+    A broken link means an entry was modified, inserted, or deleted after logging.
+    """
+    _, analysis_dir = _get_dirs()
+    path = Path(audit_log_path) if audit_log_path else analysis_dir / "forensic_audit.log"
+    if not path.exists():
+        return {"ok": True, "entries": 0, "broken_at": None, "head": _GENESIS}
+    prev = _GENESIS
+    n = 0
+    with open(path, encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            line = line.strip()
+            if not line:
+                continue
+            n += 1
+            try:
+                e = json.loads(line)
+            except Exception:
+                return {"ok": False, "entries": n, "broken_at": i, "head": prev,
+                        "reason": "unparseable entry"}
+            # Back-compat: entries written before chaining have no chain fields.
+            if "entry_hash" not in e:
+                continue
+            expect = _entry_hash(e.get("prev_hash", _GENESIS), e)
+            if e.get("prev_hash") != prev and prev != _GENESIS:
+                return {"ok": False, "entries": n, "broken_at": i, "head": prev,
+                        "reason": "prev_hash mismatch (entry inserted/deleted)"}
+            if expect != e.get("entry_hash"):
+                return {"ok": False, "entries": n, "broken_at": i, "head": prev,
+                        "reason": "entry_hash mismatch (entry modified)"}
+            prev = e["entry_hash"]
+    return {"ok": True, "entries": n, "broken_at": None, "head": prev}

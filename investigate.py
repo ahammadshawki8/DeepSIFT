@@ -42,7 +42,9 @@ def main():
         print(f"ERROR: image not found: {args.image}"); sys.exit(1)
 
     from agents.reasoning_agent import ReasoningAgent, AnthropicLLM, build_mcp_tool_runner
+    from mcp_server.audit import begin_case_audit
 
+    begin_case_audit()   # fresh, verifiable chain of custody for this case
     print("Building MCP tool interface...")
     schemas, runner = build_mcp_tool_runner()
     print(f"  {len(schemas)} typed tools available to the agent")
