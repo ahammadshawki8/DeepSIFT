@@ -336,6 +336,18 @@ When you identify suspicious activity, map it to ATT&CK techniques:
 - [x] Benchmark vs Protocol SIFT baseline: **DeepSIFT 4/4 (100%), Protocol SIFT 0/4, 0 hallucinations**
 - [x] RAG seeded offline (Hunt Evil baseline + ROCBA IOCs) — works without network/torch
 
+### Run modes
+- **Agentic (senior-analyst):** `python3 investigate.py --image ... --evidence-mount ...` — LLM
+  forms hypotheses, confirms/disproves them with confidence, picks tools, self-corrects, and builds
+  the attack chain (`agents/reasoning_agent.py`, Anthropic tool-use over the 148 MCP tools; needs
+  ANTHROPIC_API_KEY). Transcript -> `analysis/agent_transcript.json`.
+- **Deterministic:** `python3 demo.py ...` — fixed pipeline, no LLM, for reproducible benchmarks.
+
+### Guardrails (architectural, enforced in code)
+- `mcp_server.audit.guard_command` blocks destructive/exfil binaries + shell redirection at every
+  exec choke point (volatility `_run`, windows_artifacts `_run`, registry `_run_ez`); rejects
+  shell-string commands. `guard_output_path` blocks writes to `/cases/`, `/mnt/`, `/media/`.
+
 ### SIFT-Linux runtime notes (important)
 - **EZ Tools**: invoke as `dotnet /opt/zimmermantools/<Tool>.dll` (subdir-aware, e.g.
   `EvtxeCmd/EvtxECmd.dll`). PECmd may be absent → prefetch step no-ops gracefully.

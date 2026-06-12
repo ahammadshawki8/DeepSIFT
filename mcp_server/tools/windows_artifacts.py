@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 
 from mcp_server.config import EZ_TOOLS_DIR, EXPORTS_DIR, MAX_TOOL_TIMEOUT
-from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter
+from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter, guard_command
 from mcp_server.parsers.mitre_auto_map import map_event_id, map_finding_to_techniques
 from mcp_server.parsers.forensic_knowledge import wrap_response
 
@@ -66,6 +66,7 @@ def _categorize_events(events: list[dict]) -> dict:
 
 def _run(cmd: list[str], tool_name: str) -> tuple[str, str]:
     try:
+        guard_command(cmd)
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=MAX_TOOL_TIMEOUT)
         log_tool_execution(tool_name, cmd, result.stdout, error=result.stderr)
         return result.stdout, result.stderr

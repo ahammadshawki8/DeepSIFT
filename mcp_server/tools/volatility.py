@@ -15,7 +15,7 @@ from pathlib import Path
 from mcp_server.config import VOLATILITY_CMD, MAX_TOOL_TIMEOUT, MAX_ITERATIONS
 from mcp_server.audit import (
     log_tool_execution, get_last_audit_id,
-    increment_tool_counter, get_tool_count, reset_tool_counter,
+    increment_tool_counter, get_tool_count, reset_tool_counter, guard_command,
 )
 from mcp_server.parsers.pslist_parser import parse_pslist, analyze_processes
 from mcp_server.parsers.netscan_parser import parse_netscan, get_external_ips
@@ -31,6 +31,7 @@ from mcp_server.parsers.confidence_scorer import calculate_confidence_score
 def _run(cmd: list[str], tool_name: str) -> tuple[str, str]:
     """Run a subprocess, audit-log result, return (stdout, stderr)."""
     try:
+        guard_command(cmd)
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=MAX_TOOL_TIMEOUT,
         )

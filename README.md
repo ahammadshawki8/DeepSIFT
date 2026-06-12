@@ -408,6 +408,33 @@ DeepSIFT was designed knowing the competitive landscape. Here is what sets it ap
 
 ---
 
+## Autonomous Reasoning Loop (agentic) + Architectural Guardrails
+
+DeepSIFT runs two ways:
+
+- **`investigate.py` — agentic reasoning** *(the senior-analyst mode)*: an LLM forms explicit
+  **hypotheses**, chooses which typed MCP tool to run next, reads the parsed/audited JSON,
+  marks each hypothesis **confirmed / disproved / inconclusive with a confidence**, **self-corrects**
+  when a tool fails or a result contradicts a hypothesis (e.g. memory captured post-incident →
+  pivot to disk artifacts), and reconstructs the **attack chain**. Uses Anthropic native tool-use
+  over the 148 typed tools; the model only ever sees structured output and can never run a raw shell
+  command. Every reasoning step and tool call is written to `analysis/agent_transcript.json`.
+  ```bash
+  export ANTHROPIC_API_KEY=sk-ant-...
+  python3 investigate.py --image /cases/ROCBA/Rocba-Memory.raw --evidence-mount /mnt/evidence
+  ```
+- **`demo.py` — deterministic pipeline**: fixed multi-agent sequence (no LLM/key) for reproducible,
+  scriptable benchmark runs.
+
+**Architectural guardrails (enforced in code, not prompts):**
+- `mcp_server.audit.guard_command` blocks destructive/exfiltration binaries (`rm`, `dd`, `shred`,
+  `mkfs`, `wget`, `curl`, `scp`, `ssh`, `nc`, shells…) and shell redirection/chaining tokens at
+  **every** tool-execution choke point — the server physically cannot run them.
+- `guard_command` rejects shell-string commands outright (argv lists only; no `shell=True`).
+- `guard_output_path` blocks writes under evidence roots (`/cases/`, `/mnt/`, `/media/`).
+- Tool output is parsed to JSON before reaching the LLM; every call is logged with a SHA-256 of
+  the raw output (`analysis/forensic_audit.log`).
+
 ## Validated Results — ROCBA Case (Memory + Disk)
 
 End-to-end benchmark on the SANS FOR508 **ROCBA** case (`Rocba-Memory.raw` 18 GB +

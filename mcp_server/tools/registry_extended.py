@@ -17,7 +17,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter, get_tool_count
+from mcp_server.audit import log_tool_execution, get_last_audit_id, increment_tool_counter, get_tool_count, guard_command
 from mcp_server.config import EZ_TOOLS_DIR, MAX_TOOL_TIMEOUT, EXPORTS_DIR
 from mcp_server.parsers.forensic_knowledge import wrap_response
 from mcp_server.parsers.rag_enrichment import enrich_findings, build_rag_summary
@@ -46,6 +46,7 @@ def _run_ez(tool: str, args: list[str]) -> tuple[str, str]:
         else:
             return "", f"{name} not found under {_EZ} (.exe or .dll)"
     try:
+        guard_command(cmd)
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=MAX_TOOL_TIMEOUT)
         return result.stdout, result.stderr
     except subprocess.TimeoutExpired:

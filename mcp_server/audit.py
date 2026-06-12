@@ -35,6 +35,53 @@ def guard_output_path(path: str) -> str:
     return str(resolved)
 
 
+# Binaries that can destroy, exfiltrate, or alter evidence/state. The MCP server
+# must NEVER run these — enforced here in code, not via LLM prompt instructions.
+_FORBIDDEN_BINARIES = {
+    "rm", "rmdir", "del", "dd", "shred", "mkfs", "fdisk", "parted", "wipefs",
+    "format", "mv", "cp", "chmod", "chown", "truncate", "tee", "ln",
+    "wget", "curl", "scp", "sftp", "ssh", "nc", "ncat", "netcat", "telnet",
+    "ftp", "rsync", "bash", "sh", "zsh", "powershell", "pwsh", "cmd",
+    "kill", "pkill", "mount", "umount",
+    "useradd", "passwd", "iptables", "systemctl", "crontab", "at",
+}
+# Write-redirection / shell-chaining tokens that could smuggle a destructive op.
+_FORBIDDEN_TOKENS = {">", ">>", "|", ";", "&&", "||", "`", "$(", "&"}
+
+
+def guard_command(cmd) -> None:
+    """Reject any command that invokes a destructive/exfiltration binary or uses
+    shell redirection/chaining. Raises PermissionError. Architectural enforcement —
+    every tool execution path routes through this before subprocess.run().
+
+    Accepts a command as a list (argv) — the only form tools use. The basename of
+    argv[0] is checked against the forbidden set; dotnet/vol/EZ tool .dll launches
+    pass. Tokens are checked across all args.
+    """
+    if isinstance(cmd, str):
+        raise PermissionError(
+            "Shell-string commands are forbidden; use an argv list (no shell)."
+        )
+    if not cmd:
+        return
+    exe = Path(str(cmd[0])).name.lower()
+    if exe.endswith(".exe"):
+        exe = exe[:-4]
+    if exe in _FORBIDDEN_BINARIES:
+        raise PermissionError(
+            f"Refusing to execute forbidden binary {exe!r} (architectural safety "
+            f"enforcement). The DeepSIFT MCP server cannot run destructive, "
+            f"exfiltration, or arbitrary-code commands."
+        )
+    for arg in cmd:
+        s = str(arg)
+        if s in _FORBIDDEN_TOKENS or any(tok in s for tok in (">", "|", ";", "`", "$(")):
+            raise PermissionError(
+                f"Refusing command with shell redirection/chaining token in {s!r} "
+                f"(architectural safety enforcement)."
+            )
+
+
 def _get_dirs():
     from mcp_server.config import EXPORTS_DIR, ANALYSIS_DIR
     return EXPORTS_DIR, ANALYSIS_DIR
