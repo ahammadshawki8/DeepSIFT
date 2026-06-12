@@ -35,7 +35,7 @@ from typing import Callable, Optional
 logger = logging.getLogger("deepsift.reasoning")
 
 MAX_ITERATIONS_DEFAULT = int(os.getenv("AGENT_MAX_ITERATIONS", "25"))
-DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
 
 # ── Hypothesis bookkeeping ──────────────────────────────────────────────────────
@@ -271,12 +271,33 @@ def _first_text(content: list) -> str:
 
 
 # ── Default tool runner over the live MCP server ────────────────────────────────
-def build_mcp_tool_runner():
-    """Return (tools_schema, runner) driving the registered MCP server tools in-process."""
+# Curated high-value investigation tools. Presenting a focused set (vs all 148) keeps
+# each LLM request small/cheap and sharpens reasoning; pass core_only=False for everything.
+CORE_TOOLS = {
+    "get_process_list", "scan_hidden_processes", "find_injected_code",
+    "get_running_services", "get_network_connections", "get_command_history",
+    "get_loaded_dlls", "lookup_ip_reputation", "lookup_hash_reputation",
+    "parse_event_logs", "parse_shimcache", "parse_amcache", "parse_prefetch",
+    "parse_mft", "parse_lnk_files", "parse_jump_lists", "parse_registry_hive",
+    "parse_chrome_history", "parse_browser_downloads", "create_super_timeline",
+    "search_ioc_database", "search_mitre_technique", "correlate_findings",
+    "get_partition_table", "get_file_listing", "detect_timestomping",
+}
+
+
+def build_mcp_tool_runner(core_only: bool = True):
+    """Return (tools_schema, runner) driving the registered MCP server tools in-process.
+
+    core_only=True presents a curated ~25-tool investigation set (smaller/cheaper LLM
+    requests, sharper reasoning); False exposes all 148 registered tools.
+    """
     import asyncio
     import mcp_server.server as s
 
     tool_objs = _list_tools_sync(s)
+    if core_only:
+        filtered = [t for t in tool_objs if t.name in CORE_TOOLS]
+        tool_objs = filtered or tool_objs
 
     def _schema(t):
         for attr in ("parameters", "inputSchema", "input_schema"):

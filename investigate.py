@@ -30,6 +30,8 @@ def main():
     ap.add_argument("--case-dir", default="./analysis")
     ap.add_argument("--max-iterations", type=int, default=25)
     ap.add_argument("--no-rag", action="store_true")
+    ap.add_argument("--all-tools", action="store_true",
+                    help="Expose all 148 tools to the agent (default: curated ~25 core set)")
     ap.add_argument("--model", default=None, help="Anthropic model id (overrides ANTHROPIC_MODEL)")
     args = ap.parse_args()
 
@@ -46,7 +48,7 @@ def main():
 
     begin_case_audit()   # fresh, verifiable chain of custody for this case
     print("Building MCP tool interface...")
-    schemas, runner = build_mcp_tool_runner()
+    schemas, runner = build_mcp_tool_runner(core_only=not args.all_tools)
     print(f"  {len(schemas)} typed tools available to the agent")
 
     rag = None
