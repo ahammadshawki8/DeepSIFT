@@ -33,6 +33,24 @@ PID\tPPID\tImageFileName\tOffset(V)\tThreads\tHandles\tSessionId\tWow64\tCreateT
 1234\t688\tlsass.exe\t0xc40035a11080\t2\t-\t0\tFalse\t2020-11-13 20:15:01.000000\tN/A\tDisabled
 """
 
+# Mirrors the ROCBA over-flagging scenario: terminated (0-thread) duplicates,
+# legitimate third-party apps absent from the core-OS baseline, and core OS
+# processes that previously flagged each other via edit-distance masquerade.
+SAMPLE_NOISY = """Volatility 3 Framework 2.4.1
+PID\tPPID\tImageFileName\tOffset(V)\tThreads\tHandles\tSessionId\tWow64\tCreateTime\tExitTime\tFile output
+
+4\t0\tSystem\t0xc40032040\t152\t-\t-\tFalse\t2020-11-13 19:01:02.000000\tN/A\tDisabled
+388\t4\tsmss.exe\t0xc40032b1f\t2\t-\t0\tFalse\t2020-11-13 19:01:02.000000\tN/A\tDisabled
+480\t472\tcsrss.exe\t0xc40033f3d\t12\t-\t0\tFalse\t2020-11-13 19:01:08.000000\tN/A\tDisabled
+696\t612\tlsass.exe\t0xc400344e0\t11\t-\t0\tFalse\t2020-11-13 19:01:09.000000\tN/A\tDisabled
+5000\t1200\tTeams.exe\t0xc40090001\t0\t-\t1\tFalse\t2020-11-13 19:30:00.000000\t2020-11-13 19:31:00.000000\tDisabled
+5001\t1200\tTeams.exe\t0xc40090002\t0\t-\t1\tFalse\t2020-11-13 19:30:05.000000\t2020-11-13 19:31:05.000000\tDisabled
+5002\t1200\tTeams.exe\t0xc40090003\t0\t-\t1\tFalse\t2020-11-13 19:30:10.000000\t2020-11-13 19:31:10.000000\tDisabled
+6000\t1200\tMRC.exe\t0xc40091000\t8\t-\t1\tFalse\t2020-11-13 19:35:00.000000\tN/A\tDisabled
+7000\t1200\tchrome.exe\t0xc40092000\t25\t-\t1\tFalse\t2020-11-13 19:36:00.000000\tN/A\tDisabled
+2736\t688\tsvch0st.exe\t0xc40035f39\t3\t-\t0\tFalse\t2020-11-13 20:14:33.000000\tN/A\tDisabled
+"""
+
 SAMPLE_NETSCAN = """Volatility 3 Framework 2.4.1
 Progress:  100.00\t\tPDB scanning finished
 Offset\tProto\tLocalAddr\tLocalPort\tForeignAddr\tForeignPort\tState\tPID\tOwner\tCreated
@@ -100,6 +118,47 @@ class TestPslistParser:
             assert "suspicious" in services[0]
             assert "anomalies" in services[0]
 
+    # ── over-flagging regression (ROCBA: 99% false-positive fix) ──────────
+
+    def test_terminated_process_not_suspicious(self):
+        """0-thread (exited) processes are terminated, not hollowed."""
+        analyzed = analyze_processes(parse_pslist(SAMPLE_NOISY))
+        teams = [p for p in analyzed if p["name"] == "Teams.exe"]
+        assert len(teams) == 3
+        for t in teams:
+            assert t["terminated"] is True
+            assert t["suspicious"] is False, "terminated process must not be flagged"
+            assert any("Terminated process" in n for n in t["notes"])
+
+    def test_unknown_thirdparty_app_not_suspicious(self):
+        """Legit apps absent from the core-OS baseline are informational only."""
+        analyzed = analyze_processes(parse_pslist(SAMPLE_NOISY))
+        for app in ("MRC.exe", "chrome.exe"):
+            proc = [p for p in analyzed if p["name"] == app][0]
+            assert proc["suspicious"] is False
+            assert any("baseline" in n for n in proc["notes"])
+
+    def test_core_processes_dont_masquerade_flag_each_other(self):
+        """smss/csrss/lsass sit within edit-distance 2 but must not cross-flag."""
+        analyzed = analyze_processes(parse_pslist(SAMPLE_NOISY))
+        for core in ("smss.exe", "csrss.exe", "lsass.exe"):
+            proc = [p for p in analyzed if p["name"] == core][0]
+            assert proc["suspicious"] is False, f"{core} wrongly flagged"
+
+    def test_real_masquerade_still_flagged(self):
+        """A genuine look-alike (svch0st.exe) must still be caught."""
+        analyzed = analyze_processes(parse_pslist(SAMPLE_NOISY))
+        bad = [p for p in analyzed if p["name"] == "svch0st.exe"][0]
+        assert bad["suspicious"] is True
+        assert any("masquerade" in a for a in bad["anomalies"])
+
+    def test_overall_false_positive_rate_low(self):
+        """The noisy image should yield exactly one suspicious process."""
+        analyzed = analyze_processes(parse_pslist(SAMPLE_NOISY))
+        suspicious = [p for p in analyzed if p["suspicious"]]
+        assert len(suspicious) == 1
+        assert suspicious[0]["name"] == "svch0st.exe"
+
 
 # ── netscan_parser tests ──────────────────────────────────────────────────
 
@@ -130,6 +189,23 @@ class TestNetscanParser:
         # (depends on port, but port 49665 is not in SUSPICIOUS_PORTS)
         for c in listening:
             assert "ioc_flags" in c
+
+    def test_benign_external_cdn_not_suspicious(self):
+        """External egress on standard ports (443/53) is CDN noise, not an IOC."""
+        conns = parse_netscan(SAMPLE_NETSCAN)
+        for ip in ("198.51.100.1", "8.8.8.8"):  # :443 and :53
+            c = [x for x in conns if x["foreign_addr"] == ip][0]
+            assert c["suspicious"] is False, f"{ip} on a standard port must not be an IOC"
+            assert any("standard egress" in n for n in c["notes"])
+        # but they are still surfaced for reputation lookup
+        ext = get_external_ips(conns)
+        assert "198.51.100.1" in ext and "8.8.8.8" in ext
+
+    def test_external_nonstandard_port_flagged(self):
+        """External egress on a non-standard port stays suspicious."""
+        conns = parse_netscan(SAMPLE_NETSCAN)
+        c = [x for x in conns if x["foreign_addr"] == "203.0.113.5"][0]  # :4444
+        assert c["suspicious"] is True
 
 
 # ── malfind_parser tests ──────────────────────────────────────────────────

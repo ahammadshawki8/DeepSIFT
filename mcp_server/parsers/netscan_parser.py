@@ -8,6 +8,14 @@ SUSPICIOUS_PORTS = {
     6666, 6667, 6668, 6669,  # IRC (legacy botnets)
 }
 
+# Standard outbound egress ports. A *plain* established connection to an external
+# IP on one of these is ordinary traffic (web/DNS/NTP) and on its own is NOT an
+# IOC — flagging every external :443 connection buries real hostile IPs in CDN
+# noise (Microsoft / Apple / Google). Such connections are recorded as
+# informational notes and still surfaced via get_external_ips() for reputation
+# lookup, but they do not set suspicious=True by themselves.
+COMMON_OUTBOUND_PORTS = {80, 443, 53, 123}
+
 # Private / loopback ranges (used for filtering)
 _LOOPBACK = re.compile(r"^127\.")
 _PRIVATE = re.compile(r"^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)")
@@ -53,6 +61,7 @@ def parse_netscan(raw_output: str) -> list[dict]:
                 "created": " ".join(parts[9:11]) if len(parts) > 10 else "unknown",
                 "suspicious": False,
                 "ioc_flags": [],
+                "notes": [],
             }
             _flag_connection(conn)
             connections.append(conn)
@@ -64,15 +73,30 @@ def parse_netscan(raw_output: str) -> list[dict]:
 
 def _flag_connection(conn: dict) -> None:
     flags: list[str] = []
+    notes: list[str] = []
 
     foreign = conn["foreign_addr"]
     foreign_port = conn["foreign_port"]
     state = conn["state"]
 
-    # Established connections to non-private external IPs
-    if state == "ESTABLISHED" and foreign and foreign not in ("0.0.0.0", "*", "N/A"):
-        if not _LOOPBACK.match(foreign) and not _PRIVATE.match(foreign):
-            flags.append(f"Established external connection to {foreign}:{foreign_port}")
+    is_external = (
+        state == "ESTABLISHED"
+        and foreign
+        and foreign not in ("0.0.0.0", "*", "N/A")
+        and not _LOOPBACK.match(foreign)
+        and not _PRIVATE.match(foreign)
+    )
+
+    # Established external connection. Egress on a standard web/DNS/NTP port is
+    # ordinary traffic (informational); egress on any other port is notable and
+    # worth flagging (e.g. external RDP 3389 -> T1021.001, or a custom C2 port).
+    if is_external:
+        if isinstance(foreign_port, int) and foreign_port not in COMMON_OUTBOUND_PORTS:
+            flags.append(
+                f"External connection to {foreign}:{foreign_port} on non-standard port"
+            )
+        else:
+            notes.append(f"External connection to {foreign}:{foreign_port} (standard egress)")
 
     # Known suspicious ports
     if foreign_port in SUSPICIOUS_PORTS:
@@ -85,6 +109,7 @@ def _flag_connection(conn: dict) -> None:
         flags.append("Possible Tor traffic")
 
     conn["ioc_flags"] = flags
+    conn["notes"] = notes
     conn["suspicious"] = len(flags) > 0
 
 

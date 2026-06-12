@@ -263,25 +263,61 @@ def _count_instances(name: str, processes: list[dict]) -> int:
     return sum(1 for p in processes if p["name"].lower() == name.lower())
 
 
+def _count_live_instances(name: str, processes: list[dict]) -> int:
+    """Count only running instances (a live process always has >=1 thread).
+
+    Terminated processes whose EPROCESS is still resident report 0 threads and
+    must not inflate the instance ceiling check (e.g. 1900 exited Teams.exe).
+    """
+    return sum(
+        1 for p in processes
+        if p["name"].lower() == name.lower() and p.get("threads", 0) > 0
+    )
+
+
 def analyze_processes(processes: list[dict]) -> list[dict]:
     """
     Run every process through the Hunt Evil baseline checks.
-    Mutates each process dict in-place, adding anomalies list and suspicious flag.
-    Returns the same list (now annotated).
+
+    Two severities are produced per process:
+      * ``anomalies`` — genuine high-signal indicators; these set ``suspicious``.
+      * ``notes``     — informational observations that on their own are NOT
+                        evidence of compromise (unknown third-party app,
+                        terminated process). These never set ``suspicious``.
+
+    This split is deliberate: the Hunt Evil known-normal baseline exists to verify
+    that *core OS processes behave correctly*, not to flag every legitimate user
+    application. Flagging "not in baseline" or "0 threads" as suspicious produces a
+    ~99% false-positive rate on a real workstation image and swamps the analyst.
+
+    Mutates each process dict in-place. Returns the same list (now annotated).
     """
     for proc in processes:
         name = proc["name"]
         anomalies: list[str] = []
+        notes: list[str] = []
 
-        # 1. Check against known-normal baseline
+        # A live process always has at least one thread; 0 threads means the
+        # process has exited (its EPROCESS is still resident in memory). This is
+        # NOT process hollowing — hollowed processes run injected code on live
+        # threads — so it is informational, never suspicious on its own.
+        terminated = proc.get("threads", 0) == 0
+        proc["terminated"] = terminated
+
         baseline = KNOWN_NORMAL.get(name)
 
         if baseline is None:
-            # Not in baseline — flag for investigation (not necessarily malicious)
-            anomalies.append(f"Not in Windows known-normal baseline")
+            # Unknown to the core-OS baseline. Extremely common and benign
+            # (Chrome, Teams, Slack, vendor agents). Informational only — a real
+            # verdict needs path / signature / injection evidence from other tools.
+            notes.append(
+                "Not in core-OS known-normal baseline "
+                "(expected for third-party/user applications)"
+            )
         else:
-            # 2. Check parent process
-            if baseline["expected_parent"]:
+            # Parent-process check — only meaningful for a live process; a
+            # terminated process can carry a stale/reused PPID.
+            if baseline["expected_parent"] and not terminated:
                 parent_name = _get_name_by_pid(proc["ppid"], processes)
                 if parent_name and parent_name != baseline["expected_parent"]:
                     anomalies.append(
@@ -289,26 +325,33 @@ def analyze_processes(processes: list[dict]) -> list[dict]:
                         f"got '{parent_name}' (PPID {proc['ppid']})"
                     )
 
-            # 3. Check instance count
-            count = _count_instances(name, processes)
-            if count > baseline["max_instances"]:
+            # Instance-count ceiling — count only LIVE instances so stale exited
+            # duplicates (common for chat/browser apps) do not trip the limit.
+            live_count = _count_live_instances(name, processes)
+            if live_count > baseline["max_instances"]:
                 anomalies.append(
-                    f"Too many instances: {count} running "
+                    f"Too many instances: {live_count} live "
                     f"(max expected: {baseline['max_instances']})"
                 )
 
-        # 4. Masquerade detection — look for look-alike names
-        for legit in MASQUERADE_TARGETS:
-            if name != legit and _is_masquerade(name, legit):
-                anomalies.append(
-                    f"Possible masquerade of '{legit}' (typosquatting/spacing)"
-                )
+        # Masquerade detection — only meaningful for names NOT in the baseline.
+        # Core OS process names sit within edit-distance 2 of each other
+        # (smss<->csrss, lsass<->lsm), so running this on known-good names makes
+        # them flag one another. A real name-masquerade ("scvhost.exe") is by
+        # definition not the legitimate name and therefore not in the baseline.
+        if baseline is None:
+            for legit in MASQUERADE_TARGETS:
+                if name != legit and _is_masquerade(name, legit):
+                    anomalies.append(
+                        f"Possible masquerade of '{legit}' (typosquatting/spacing)"
+                    )
+                    break
 
-        # 5. Suspicious thread count
-        if proc["threads"] == 0 and name not in ("System",):
-            anomalies.append("Zero threads — process may be a hollow shell")
+        if terminated and name != "System":
+            notes.append("Terminated process (0 live threads); EPROCESS still resident")
 
         proc["anomalies"] = anomalies
+        proc["notes"] = notes
         proc["suspicious"] = len(anomalies) > 0
 
     return processes
