@@ -37,7 +37,49 @@ class _OfflineEmbedder:
         return np.asarray(self.vec.transform(texts).todense(), dtype="float32")
 
 
+class _OpenAIEmbedder:
+    """Real semantic embeddings via the OpenAI embeddings API (text-embedding-3-small
+    by default). Small requests, works over constrained links; needs OPENAI_API_KEY."""
+
+    def __init__(self, model: str = "text-embedding-3-small"):
+        import os
+        import openai  # raises if not installed -> caller falls back
+        key = os.getenv("OPENAI_API_KEY", "")
+        if not key:
+            raise RuntimeError("OPENAI_API_KEY not set")
+        self.client = openai.OpenAI(api_key=key)
+        self.model = model
+        self.backend = f"openai:{model}"
+
+    def encode(self, texts):
+        import numpy as np
+        if isinstance(texts, str):
+            texts = [texts]
+        # batch to stay within request limits
+        vecs = []
+        for i in range(0, len(texts), 256):
+            resp = self.client.embeddings.create(model=self.model, input=texts[i:i + 256])
+            vecs.extend(d.embedding for d in resp.data)
+        return np.asarray(vecs, dtype="float32")
+
+
 class ForensicKnowledgeBase:
+    @staticmethod
+    def _select_embedder(model_name: str):
+        try:
+            from sentence_transformers import SentenceTransformer
+            return SentenceTransformer(model_name), "sentence-transformers"
+        except Exception as e:
+            logger.warning(f"sentence-transformers unavailable ({e})")
+        try:
+            emb = _OpenAIEmbedder()
+            logger.info("Using OpenAI embeddings (semantic)")
+            return emb, emb.backend
+        except Exception as e:
+            logger.warning(f"OpenAI embeddings unavailable ({e}); using offline embedder")
+        emb = _OfflineEmbedder()
+        return emb, getattr(emb, "backend", "offline")
+
     def __init__(self, db_path: str | None = None):
         import chromadb
 
@@ -50,17 +92,11 @@ class ForensicKnowledgeBase:
 
         Path(db_path).mkdir(parents=True, exist_ok=True)
         self.client = chromadb.PersistentClient(path=db_path)
-        # Prefer the semantic transformer; fall back to an offline embedder when
-        # torch/sentence-transformers or the model download is unavailable.
-        try:
-            from sentence_transformers import SentenceTransformer
-            self.embed_model = SentenceTransformer(model_name)
-            self.embed_backend = "sentence-transformers"
-        except Exception as e:
-            logger.warning(
-                f"sentence-transformers unavailable ({e}); using offline embedder")
-            self.embed_model = _OfflineEmbedder()
-            self.embed_backend = getattr(self.embed_model, "backend", "offline")
+        # Embedding backend, best available first:
+        #  1. sentence-transformers (local semantic) if torch + model are present;
+        #  2. OpenAI embeddings API (real semantic, small requests) if OPENAI_API_KEY set;
+        #  3. offline hashing embedder (lexical, fully air-gapped) as last resort.
+        self.embed_model, self.embed_backend = self._select_embedder(model_name)
         self.collection = self.client.get_or_create_collection(
             name="forensic_knowledge",
             metadata={"hnsw:space": "cosine"},
