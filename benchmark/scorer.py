@@ -110,14 +110,35 @@ class BenchmarkScorer:
                 matched.append(label)
         return count, matched
 
-    def _detect_hallucinations(self, findings: dict, anti_hallucination_rules: list[str]) -> list[str]:
-        """Flag findings that match known-bad hallucination patterns."""
+    def _detect_hallucinations(self, findings: dict, anti_hallucination_rules: list) -> list[str]:
+        """Flag findings that genuinely commit a forbidden (hallucinated) claim.
+
+        Only PRECISE rules fire, so an accurate analysis is never falsely accused:
+          * dict rule {"name", "groups", "co_occur"} — fires when each group's
+            synonyms are present (optionally co-occurring in one finding entry).
+          * str rule — descriptive guidance only; does NOT auto-fire (matching the
+            first few words of a prose sentence produced false positives, e.g. any
+            report mentioning 'network connections' tripped 'connections not observed').
+        Real verbatim-grounding enforcement lives in parsers/grounding_verifier.py.
+        """
         detected = []
-        findings_text = str(findings).lower()
+        leaves = self._leaf_strings(findings)
+        text = str(findings).lower()
         for rule in anti_hallucination_rules:
-            keywords = rule.lower().split()
-            if all(kw in findings_text for kw in keywords[:3]):
-                detected.append(rule)
+            if not isinstance(rule, dict):
+                continue
+            groups = rule.get("groups", [])
+            if not groups:
+                continue
+            if rule.get("co_occur"):
+                hit = any(
+                    all(any(str(s).lower() in leaf for s in g) for g in groups)
+                    for leaf in leaves
+                )
+            else:
+                hit = all(any(str(s).lower() in text for s in g) for g in groups)
+            if hit:
+                detected.append(rule.get("name", str(rule)))
         return detected
 
     def _extract_all_claims(self, findings: dict) -> list[str]:

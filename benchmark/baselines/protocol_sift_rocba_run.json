@@ -1,0 +1,36 @@
+{
+  "case_id": "ROCBA-2020",
+  "case_name": "Fred Rocba Break-In — Protocol SIFT (raw Volatility, freshly run)",
+  "analysis_type": "memory_only",
+  "method": "Vanilla approach: raw Volatility 3 plugins (windows.pslist, windows.cmdline, windows.svcscan, windows.netscan, windows.malfind) with output read directly — no DeepSIFT middleware/parsers/RAG.",
+  "summary": "Memory-only triage of Rocba-Memory.raw (Windows 10, captured 2020-11-16 02:32:38 UTC). An RDP brute-force from two external IPs (81.30.144.115, 213.202.233.104) was active at capture, with multiple ESTABLISHED sessions. MRC.exe (PID 29440, D:\\Tools\\MRC.exe) is a non-standard binary but is the ROCBA course exercise tool (benign). malfind shows RWX regions only in common .NET/UWP processes (Teams, SearchApp, Defender, dllhost, RuntimeBroker) — no clear injected malware. Numerous cloud-sync/CDN connections (Microsoft, Apple, Google) reflect active OneDrive/Teams/iCloud/Google Drive/Slack usage. The reported 2020-11-13 incident is NOT visible in this image — memory was captured 3 days later, so the break-in evidence lives on disk (event logs, LNK/Jump Lists, browser history, MFT) which a memory-only analysis cannot reach.",
+  "suspicious_processes": [
+    "MRC.exe (PID 29440) — non-standard path D:\\Tools\\MRC.exe; ROCBA course tool; benign",
+    "malfind RWX regions (no clear malware): Teams.exe (15636), smartscreen.exe (19348), SearchApp.exe (19436/8312), MsMpEng.exe (4864), dllhost.exe (8748), LockApp.exe (9788), RuntimeBroker.exe (9964)"
+  ],
+  "network_iocs": [
+    "81.30.144.115",
+    "213.202.233.104"
+  ],
+  "external_connections_observed": [
+    "81.30.144.115", "213.202.233.104", "23.46.190.35", "23.197.181.157",
+    "52.242.211.89", "54.82.161.19", "52.179.224.121", "52.114.75.149",
+    "52.114.142.209", "52.114.133.189", "52.114.132.120", "52.114.128.43",
+    "52.113.194.132", "172.217.12.170", "172.217.10.42", "17.57.144.165",
+    "17.248.138.42", "13.107.136.9"
+  ],
+  "mitre_techniques": ["T1110", "T1021.001"],
+  "high_risk_injections": 0,
+  "timeline": [
+    "2020-11-16 ~02:31 UTC — first connections from 213.202.233.104 / 81.30.144.115 (netscan)",
+    "2020-11-16 02:32:38 UTC — memory capture (windows.info SystemTime)",
+    "2020-11-16 ~02:34 UTC — multiple ESTABLISHED RDP sessions from both hostile IPs"
+  ],
+  "confidence": "high",
+  "analysis_notes": [
+    "Memory captured 2020-11-16, 3 days after the 2020-11-13 incident.",
+    "No event logs, LNK, browser history, or MFT available from memory — Nov 13 unauthorized access, file exfiltration, cloud usage, and browser activity cannot be determined from this image.",
+    "malfind hits are common RWX false positives in .NET/UWP processes; no injected PE/shellcode of concern."
+  ],
+  "status": "complete"
+}
