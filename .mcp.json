@@ -3,7 +3,9 @@
     "deepsift": {
       "command": "python3",
       "args": ["mcp_server/server.py"],
-      "env": {}
+      "env": {
+        "MAX_ITERATIONS": "40"
+      }
     }
   }
 }
