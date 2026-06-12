@@ -15,7 +15,6 @@ Tools:
   get_ads_memory     — Alternate Data Streams found in memory MFT scan
   dump_process       — Dump a process executable to disk for further analysis
 """
-from __future__ import annotations
 import json
 import re
 import subprocess

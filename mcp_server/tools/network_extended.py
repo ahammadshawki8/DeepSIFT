@@ -11,7 +11,6 @@ Tools:
   decode_rdp_bitmap_cache  — Decode RDP bitmap cache files
   parse_netflow            — Parse NetFlow v5/v9 records from nfdump
 """
-from __future__ import annotations
 import csv
 import json
 import re

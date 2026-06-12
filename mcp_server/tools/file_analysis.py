@@ -9,7 +9,6 @@ Three tools for static analysis of extracted files:
 These tools operate on files extracted from disk images (extract_file) or
 exported by Volatility (procdump). They bridge memory forensics and static analysis.
 """
-from __future__ import annotations
 import json
 import math
 import os

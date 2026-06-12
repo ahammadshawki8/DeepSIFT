@@ -100,7 +100,8 @@ register_disk_extended_tools(mcp, rag)
 register_threat_intel_extended_tools(mcp, rag)
 
 try:
-    tool_count = len(mcp.list_tools())
+    # list_tools() is async in FastMCP; read the registry synchronously here.
+    tool_count = len(mcp._tool_manager.list_tools())
     logger.info(f"DeepSIFT MCP server initialized with {tool_count} tools")
 except Exception:
     logger.info("DeepSIFT MCP server initialized")

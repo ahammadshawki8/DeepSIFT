@@ -7,7 +7,6 @@ Two tools that address the top competitive differentiators from the field:
   - adversarial_review: explicitly challenge findings before finish_analysis
     (inspired by Mulder's Phase 4 "Alternative Narrative")
 """
-from __future__ import annotations
 import json
 from pathlib import Path
 

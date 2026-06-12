@@ -8,7 +8,6 @@ Three tools for PCAP and network artifact analysis:
 
 These tools complement netscan (live connections) with captured traffic analysis.
 """
-from __future__ import annotations
 import json
 import re
 import subprocess

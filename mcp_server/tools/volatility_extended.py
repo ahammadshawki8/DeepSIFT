@@ -13,7 +13,6 @@ Extended Volatility 3 tool wrappers — Priority 4 (tool count expansion).
   - Process activity timeline (get_timeliner)
   - Device driver stack (get_devicetree)
 """
-from __future__ import annotations
 import json
 import subprocess
 

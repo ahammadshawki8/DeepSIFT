@@ -9,7 +9,6 @@ Tools:
   analyze_slack_space   — Identify and extract file system slack space
   verify_image_integrity — Verify disk image hash integrity (MD5/SHA256 + ewfverify)
 """
-from __future__ import annotations
 import hashlib
 import json
 import subprocess

@@ -13,7 +13,6 @@ Tools:
   parse_syslog           — Parse /var/log/syslog, auth.log, kern.log, secure
   parse_linux_crontab    — Cron persistence analysis (T1053.003)
 """
-from __future__ import annotations
 import json
 import re
 import subprocess

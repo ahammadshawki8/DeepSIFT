@@ -9,7 +9,6 @@ Tools:
   analyze_zip_archive — ZIP structure analysis: password-protected, nested ZIPs, suspicious entries
   detect_dde_payload — DDE field detection in Office XML files
 """
-from __future__ import annotations
 import json
 import re
 import subprocess

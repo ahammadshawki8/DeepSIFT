@@ -14,7 +14,6 @@ Installation on SIFT:
 
 Environment variable: HAYABUSA_CMD (default: hayabusa)
 """
-from __future__ import annotations
 import csv as _csv
 import json
 import subprocess

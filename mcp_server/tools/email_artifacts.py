@@ -8,7 +8,6 @@ Tools:
   extract_email_attachments — List and categorise attachments from PST/OST
   analyze_email_headers  — Header forensics (SPF/DKIM/DMARC, route, spoofing)
 """
-from __future__ import annotations
 import email
 import email.policy
 import json

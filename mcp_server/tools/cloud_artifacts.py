@@ -13,7 +13,6 @@ Tools:
   parse_teams_artifacts   — Microsoft Teams IndexedDB and logs
   parse_icloud_logs       — iCloud for Windows sync logs
 """
-from __future__ import annotations
 import json
 import re
 import sqlite3

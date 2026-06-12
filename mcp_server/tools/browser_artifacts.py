@@ -14,7 +14,6 @@ Tools:
   parse_ie_history          — Internet Explorer / Edge Legacy history (ESE)
   parse_chromium_cache      — Chrome cache entry listing (cached domains)
 """
-from __future__ import annotations
 import json
 import os
 import re

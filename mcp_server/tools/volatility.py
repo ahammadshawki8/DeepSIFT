@@ -8,7 +8,6 @@ Every response includes:
   advisories      — what NOT to conclude without corroboration
   corroboration   — recommended follow-up tool calls
 """
-from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path

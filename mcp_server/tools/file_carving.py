@@ -11,7 +11,6 @@ Tools:
   extract_floss_strings — FLOSS: decode obfuscated strings from executables
   get_file_type         — file + magic bytes: determine true file type
 """
-from __future__ import annotations
 import hashlib
 import json
 import re

@@ -8,7 +8,6 @@ Tools:
   search_ioc_database        — Search all IOCs in the RAG knowledge base
   calculate_fuzzy_hash_similarity — ssdeep similarity between two files/hashes
 """
-from __future__ import annotations
 import json
 import os
 import subprocess

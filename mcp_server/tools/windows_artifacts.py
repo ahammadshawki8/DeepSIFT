@@ -4,7 +4,6 @@ One function = one typed MCP tool.
 
 Every response includes audit_id (chain-of-custody) plus forensic knowledge envelope.
 """
-from __future__ import annotations
 import csv as _csv
 import json
 import subprocess
@@ -80,8 +79,27 @@ def _run(cmd: list[str], tool_name: str) -> tuple[str, str]:
         return "", msg
 
 
-def _ez(tool: str) -> str:
-    return str(EZ_TOOLS_DIR / tool)
+def _ez(tool: str) -> list[str]:
+    """Resolve an EZ Tool to an executable command list.
+
+    On Windows the native ``<Tool>.exe`` is used directly. On SANS SIFT (Linux)
+    the tools ship as .NET assemblies, so ``<Tool>.dll`` (which may live in a
+    subdirectory, e.g. ``EvtxeCmd/EvtxECmd.dll``) is run via ``dotnet``. Returns a
+    command-prefix list so call sites do ``_ez("Tool.exe") + [args...]``.
+    """
+    import os
+    name = tool[:-4] if tool.lower().endswith(".exe") else tool
+    exe = EZ_TOOLS_DIR / f"{name}.exe"
+    # Only exec the native .exe on Windows — on Linux those PE launchers can't run.
+    if os.name == "nt" and exe.exists():
+        return [str(exe)]
+    hits = list(EZ_TOOLS_DIR.glob(f"**/{name}.dll"))
+    if hits:
+        return ["dotnet", str(hits[0])]
+    if exe.exists():
+        return [str(exe)]
+    # Fall back to a top-level dll path; _run() reports a clear error if missing.
+    return ["dotnet", str(EZ_TOOLS_DIR / f"{name}.dll")]
 
 
 def _read_csv_dir(output_dir: str, max_rows: int = 500) -> list[dict]:
@@ -125,8 +143,7 @@ def register_windows_artifact_tools(mcp, rag=None):
         )
         filter_ids = event_ids.strip() if event_ids.strip() else DEFAULT_IDS
 
-        cmd = [
-            _ez("EvtxECmd.exe"), "-d", evtx_dir,
+        cmd = _ez("EvtxECmd.exe") + [ "-d", evtx_dir,
             "--csv", output_dir, "--csvf", "evtx_output.csv",
             "--inc", filter_ids,
         ]
@@ -192,7 +209,7 @@ def register_windows_artifact_tools(mcp, rag=None):
         """
         output_dir = str(EXPORTS_DIR / "shimcache")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        cmd = [_ez("AppCompatCacheParser.exe"), "-f", system_hive_path, "--csv", output_dir]
+        cmd = _ez("AppCompatCacheParser.exe") + ["-f", system_hive_path, "--csv", output_dir]
         _run(cmd, "parse_shimcache")
         audit_id = get_last_audit_id()
         increment_tool_counter()
@@ -236,7 +253,7 @@ def register_windows_artifact_tools(mcp, rag=None):
         """
         output_dir = str(EXPORTS_DIR / "amcache")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        cmd = [_ez("AmcacheParser.exe"), "-f", amcache_path, "--csv", output_dir]
+        cmd = _ez("AmcacheParser.exe") + ["-f", amcache_path, "--csv", output_dir]
         _run(cmd, "parse_amcache")
         audit_id = get_last_audit_id()
         increment_tool_counter()
@@ -277,7 +294,7 @@ def register_windows_artifact_tools(mcp, rag=None):
             prefetch_dir: Path to directory containing .pf files.
         """
         output_dir = str(EXPORTS_DIR / "prefetch")
-        cmd = [_ez("PECmd.exe"), "-d", prefetch_dir, "--csv", output_dir]
+        cmd = _ez("PECmd.exe") + ["-d", prefetch_dir, "--csv", output_dir]
         _run(cmd, "parse_prefetch")
         audit_id = get_last_audit_id()
         increment_tool_counter()
@@ -316,7 +333,7 @@ def register_windows_artifact_tools(mcp, rag=None):
         """
         output_dir = str(EXPORTS_DIR / "mft")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        cmd = [_ez("MFTECmd.exe"), "-f", mft_path, "--csv", output_dir]
+        cmd = _ez("MFTECmd.exe") + ["-f", mft_path, "--csv", output_dir]
         _run(cmd, "parse_mft")
         audit_id = get_last_audit_id()
         increment_tool_counter()
@@ -375,7 +392,7 @@ def register_windows_artifact_tools(mcp, rag=None):
             lnk_dir: Path to directory containing .lnk files.
         """
         output_dir = str(EXPORTS_DIR / "lnk")
-        cmd = [_ez("LECmd.exe"), "-d", lnk_dir, "--csv", output_dir]
+        cmd = _ez("LECmd.exe") + ["-d", lnk_dir, "--csv", output_dir]
         _run(cmd, "parse_lnk_files")
         audit_id = get_last_audit_id()
         increment_tool_counter()
@@ -412,7 +429,7 @@ def register_windows_artifact_tools(mcp, rag=None):
             jumplist_dir: Path to directory containing jump list files.
         """
         output_dir = str(EXPORTS_DIR / "jumplists")
-        cmd = [_ez("JLECmd.exe"), "-d", jumplist_dir, "--csv", output_dir]
+        cmd = _ez("JLECmd.exe") + ["-d", jumplist_dir, "--csv", output_dir]
         _run(cmd, "parse_jump_lists")
         audit_id = get_last_audit_id()
         increment_tool_counter()
@@ -431,7 +448,7 @@ def register_windows_artifact_tools(mcp, rag=None):
             search_pattern: Optional keyword to search within key names or values.
         """
         output_dir = str(EXPORTS_DIR / "registry")
-        cmd = [_ez("RECmd.exe"), "-f", hive_path, "--csv", output_dir]
+        cmd = _ez("RECmd.exe") + ["-f", hive_path, "--csv", output_dir]
         if search_pattern:
             cmd += ["--sk", search_pattern]
 
@@ -472,7 +489,7 @@ def register_windows_artifact_tools(mcp, rag=None):
         """
         output_dir = str(EXPORTS_DIR / "recycle_bin")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        cmd = [_ez("RBCmd.exe"), "-d", recycle_bin_path, "--csv", output_dir]
+        cmd = _ez("RBCmd.exe") + ["-d", recycle_bin_path, "--csv", output_dir]
         _run(cmd, "parse_recycle_bin")
         audit_id = get_last_audit_id()
         increment_tool_counter()
@@ -515,7 +532,7 @@ def register_windows_artifact_tools(mcp, rag=None):
         """
         output_dir = str(EXPORTS_DIR / "srum")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        cmd = [_ez("SrumECmd.exe"), "-f", srum_path, "--csv", output_dir]
+        cmd = _ez("SrumECmd.exe") + ["-f", srum_path, "--csv", output_dir]
         _run(cmd, "parse_srum")
         audit_id = get_last_audit_id()
         increment_tool_counter()
@@ -602,7 +619,7 @@ def register_windows_artifact_tools(mcp, rag=None):
         """
         output_dir = str(EXPORTS_DIR / "usn_journal")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        cmd = [_ez("MFTECmd.exe"), "-f", usn_path, "--csv", output_dir]
+        cmd = _ez("MFTECmd.exe") + ["-f", usn_path, "--csv", output_dir]
         _run(cmd, "parse_usn_journal")
         audit_id = get_last_audit_id()
         increment_tool_counter()
@@ -733,7 +750,7 @@ def register_windows_artifact_tools(mcp, rag=None):
         output_dir = str(EXPORTS_DIR / "userassist")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         batch_file = str(EZ_TOOLS_DIR / "BatchExamples" / "UserAssist.reb")
-        cmd = [_ez("RECmd.exe"), "-f", ntuser_path, "--bn", batch_file, "--csv", output_dir]
+        cmd = _ez("RECmd.exe") + ["-f", ntuser_path, "--bn", batch_file, "--csv", output_dir]
         _run(cmd, "parse_userassist")
         audit_id = get_last_audit_id()
         increment_tool_counter()
@@ -769,8 +786,7 @@ def register_windows_artifact_tools(mcp, rag=None):
         """
         output_dir = str(EXPORTS_DIR / "recentdocs")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        cmd = [
-            _ez("RECmd.exe"), "-f", ntuser_path,
+        cmd = _ez("RECmd.exe") + [ "-f", ntuser_path,
             "--kn", "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RecentDocs",
             "--csv", output_dir,
         ]
@@ -799,8 +815,7 @@ def register_windows_artifact_tools(mcp, rag=None):
         """
         output_dir = str(EXPORTS_DIR / "network_history")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        cmd = [
-            _ez("RECmd.exe"), "-f", system_hive_path,
+        cmd = _ez("RECmd.exe") + [ "-f", system_hive_path,
             "--kn", "CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces",
             "--csv", output_dir,
         ]
@@ -829,8 +844,7 @@ def register_windows_artifact_tools(mcp, rag=None):
         """
         output_dir = str(EXPORTS_DIR / "usb_history")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        cmd = [
-            _ez("RECmd.exe"), "-f", system_hive_path,
+        cmd = _ez("RECmd.exe") + [ "-f", system_hive_path,
             "--kn", "CurrentControlSet\\Enum\\USBSTOR",
             "--csv", output_dir,
         ]

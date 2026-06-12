@@ -10,7 +10,6 @@ Tools:
   detect_prefetch_anomalies   — Prefetch execution count or timing inconsistencies
   detect_event_log_tampering  — Event ID 1102/104 and audit policy change detection
 """
-from __future__ import annotations
 import json
 import re
 import subprocess

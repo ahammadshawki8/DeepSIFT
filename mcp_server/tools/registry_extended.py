@@ -13,7 +13,6 @@ Tools beyond the basic parse_registry_hive already in windows_artifacts.py:
   parse_sam_hive           — SAM hive: local user accounts and last logon info
   parse_logon_history      — Security hive: cached domain credentials + last logon
 """
-from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
@@ -28,25 +27,31 @@ _EZ = EZ_TOOLS_DIR
 
 
 def _run_ez(tool: str, args: list[str]) -> tuple[str, str]:
-    """Run an EZ Tools binary via mono/.NET and return (stdout, stderr)."""
-    exe = _EZ / tool
-    if not exe.exists():
-        return "", f"{tool} not found at {exe}"
+    """Run an EZ Tool and return (stdout, stderr).
+
+    Resolves the tool cross-platform: native ``<Tool>.exe`` on Windows, otherwise
+    the .NET ``<Tool>.dll`` (subdir-aware) via ``dotnet`` on SANS SIFT (Linux).
+    """
+    import os
+    name = tool[:-4] if tool.lower().endswith(".exe") else tool
+    exe = _EZ / f"{name}.exe"
+    if os.name == "nt" and exe.exists():
+        cmd = [str(exe)] + args
+    else:
+        hits = list(_EZ.glob(f"**/{name}.dll"))
+        if hits:
+            cmd = ["dotnet", str(hits[0])] + args
+        elif exe.exists():
+            cmd = [str(exe)] + args
+        else:
+            return "", f"{name} not found under {_EZ} (.exe or .dll)"
     try:
-        cmd = ["mono", str(exe)] + args if not str(exe).endswith(".exe") else [str(exe)] + args
-        # On SIFT, EZ Tools run under mono
-        cmd = ["mono", str(exe)] + args
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=MAX_TOOL_TIMEOUT)
         return result.stdout, result.stderr
-    except FileNotFoundError:
-        # Try without mono (Windows native or .NET on Linux)
-        try:
-            result = subprocess.run([str(exe)] + args, capture_output=True, text=True, timeout=MAX_TOOL_TIMEOUT)
-            return result.stdout, result.stderr
-        except Exception as e:
-            return "", str(e)
     except subprocess.TimeoutExpired:
-        return "", f"{tool} timed out"
+        return "", f"{name} timed out"
+    except Exception as e:
+        return "", str(e)
 
 
 def _run_recmd(hive_path: str, batch_or_key: str, is_batch: bool = False) -> tuple[str, str]:
