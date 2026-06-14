@@ -540,10 +540,13 @@ This directly answers the "usability" and "audit trails" judging criteria.
 
 Enforced in code, not prompts — these raise exceptions; the model cannot talk its way past them:
 
-- `mcp_server.audit.guard_command` blocks destructive/exfiltration binaries (`rm`, `dd`, `shred`,
-  `mkfs`, `wget`, `curl`, `scp`, `ssh`, `nc`, shells…) and shell redirection/chaining tokens at
-  **every** tool-execution choke point — the server physically cannot run them.
-- `guard_command` rejects shell-string commands outright (argv lists only; no `shell=True`).
+- Every tool hard-codes its own forensic binary and builds an **argv list (never `shell=True`,
+  never a shell string)** — the model cannot choose the binary or smuggle a second command, so an
+  arbitrary destructive command is unreachable by construction.
+- `mcp_server.audit.guard_command` adds defense-in-depth on the parameter-rich binary launchers
+  (Volatility, EZ Tools / Windows-artifact, and registry exec paths): it blocks destructive/
+  exfiltration binaries (`rm`, `dd`, `shred`, `mkfs`, `wget`, `curl`, `scp`, `ssh`, `nc`, shells…)
+  and shell redirection/chaining tokens, and rejects shell-string commands outright.
 - `guard_output_path` blocks writes under evidence roots (`/cases/`, `/mnt/`, `/media/`).
 - Tool output is parsed to JSON before reaching the LLM; every call is logged with a SHA-256 of
   the raw output (`analysis/forensic_audit.log`).
@@ -679,7 +682,7 @@ python3 rag/ingest/run_all.py
 
 # Run tests
 pytest tests/
-# Expected: 74 passed, 1 skipped
+# Expected: 75 passed, 1 skipped
 ```
 
 ### Connect to Claude Code
@@ -713,7 +716,7 @@ first principles in a few minutes.
 ```bash
 # 1. Works on a fresh clone immediately:
 python3 preflight.py        # which forensic tool groups are operational here (honest, per-host)
-pytest -q                   # full test suite → 74 passed, 1 skipped
+pytest -q                   # full test suite → 75 passed, 1 skipped
 
 # 2. See a completed result instantly (committed sample — no run needed):
 #    open docs/sample/vanko_examiner_report.html  (or rocba_examiner_report.html) in a browser,
@@ -980,8 +983,9 @@ These are not prompts — they are code:
    attempt under `/cases/`, `/mnt/`, or `/media/`. No prompt override possible.
 
 2. **No shell escape** — There is no `run_command` or `execute_shell` tool on the MCP
-   surface. The server exposes only the typed tools listed above; `guard_command` additionally
-   blocks destructive/exfiltration binaries and shell-string commands at every exec choke point.
+   surface. The server exposes only the typed tools listed above; each runs a fixed binary via an
+   argv list (no shell), and `guard_command` additionally blocks destructive/exfiltration binaries
+   and shell-string commands on the Volatility / EZ Tools / registry exec paths.
 
 3. **Bounded, evidence-driven budget** — `audit.py` counts every tool call; the agent runs until
    the evidence is sufficient (configurable via `MAX_ITERATIONS`) and then calls `finish_analysis`.
