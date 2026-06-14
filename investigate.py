@@ -10,8 +10,13 @@ in mcp_server.audit.guard_command).
 
 Usage:
     export ANTHROPIC_API_KEY=sk-ant-...
-    python3 investigate.py --image /cases/ROCBA/Rocba-Memory.raw \
+    # memory + disk
+    python3 investigate.py --image /cases/<case>/memory.raw \
         --evidence-mount /mnt/evidence [--max-iterations 25]
+    # disk-only (no memory image) — a first-class autonomous run
+    python3 investigate.py --evidence-mount /mnt/evidence
+    # memory-only
+    python3 investigate.py --image /cases/<case>/memory.raw
 
 Outputs:
     analysis/findings_agentic.json   — final findings + hypotheses + attack chain
@@ -25,7 +30,7 @@ from pathlib import Path
 
 def main():
     ap = argparse.ArgumentParser(description="DeepSIFT agentic investigation")
-    ap.add_argument("--image", required=True, help="Path to memory image")
+    ap.add_argument("--image", default="", help="Path to memory image (optional for disk-only cases)")
     ap.add_argument("--evidence-mount", default="", help="Mounted disk evidence (read-only)")
     ap.add_argument("--case-dir", default="./analysis")
     ap.add_argument("--max-iterations", type=int, default=25)
@@ -40,8 +45,15 @@ def main():
                         handlers=[logging.StreamHandler(sys.stdout),
                                   logging.FileHandler(str(Path(args.case_dir) / "investigate.log"), mode="w")])
 
-    if not Path(args.image).exists():
-        print(f"ERROR: image not found: {args.image}"); sys.exit(1)
+    # Accept memory-only, disk-only, or both — but require at least one evidence source.
+    if not args.image and not args.evidence_mount:
+        print("ERROR: provide --image (memory) and/or --evidence-mount (disk). "
+              "Disk-only cases are supported: pass just --evidence-mount.")
+        sys.exit(1)
+    if args.image and not Path(args.image).exists():
+        print(f"ERROR: memory image not found: {args.image}"); sys.exit(1)
+    if args.evidence_mount and not Path(args.evidence_mount).exists():
+        print(f"ERROR: evidence mount not found: {args.evidence_mount}"); sys.exit(1)
 
     from agents.reasoning_agent import ReasoningAgent, AnthropicLLM, build_mcp_tool_runner
     from mcp_server.audit import begin_case_audit
@@ -70,7 +82,9 @@ def main():
 
     agent = ReasoningAgent(llm=llm, tool_runner=runner, tools=schemas, rag=rag,
                            max_iterations=args.max_iterations)
-    print(f"Investigating {args.image} ...\n")
+    _target = args.image or args.evidence_mount or "(no evidence)"
+    print(f"Investigating {_target} "
+          f"({'memory+disk' if args.image and args.evidence_mount else 'memory-only' if args.image else 'disk-only'}) ...\n")
     findings = agent.investigate(args.image, case_dir=args.case_dir,
                                  evidence_mount=args.evidence_mount)
 

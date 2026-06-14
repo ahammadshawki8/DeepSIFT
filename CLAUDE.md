@@ -342,10 +342,19 @@ When you identify suspicious activity, map it to ATT&CK techniques:
 - [x] RAG seeded offline (case-agnostic corpus) — works without network/torch
 
 ### Run modes
-- **Agentic (senior-analyst):** `python3 investigate.py --image ... --evidence-mount ...` — LLM
-  forms hypotheses, confirms/disproves them with confidence, picks tools, self-corrects, and builds
-  the attack chain (`agents/reasoning_agent.py`, Anthropic tool-use over the 148 MCP tools; needs
-  ANTHROPIC_API_KEY). Transcript -> `analysis/agent_transcript.json`.
+- **Agentic (senior-analyst) — the primary path.** An LLM forms hypotheses, confirms/disproves
+  them with confidence, picks tools, self-corrects, and builds the attack chain
+  (`agents/reasoning_agent.py`, Anthropic tool-use over the typed MCP tools). Works on **any**
+  evidence shape — memory-only, **disk-only**, or both — and adapts its triage accordingly
+  (memory → process list; disk-only → event logs / shellbags / UserAssist / LNK / Jump Lists /
+  USB / shimcache / browser / MFT). Transcript -> `analysis/agent_transcript.json`.
+  - memory + disk: `python3 investigate.py --image <mem.raw> --evidence-mount /mnt/evidence`
+  - **disk-only (first-class): `python3 investigate.py --evidence-mount /mnt/evidence`**
+  - memory-only: `python3 investigate.py --image <mem.raw>`
+  - (needs a real ANTHROPIC_API_KEY; or drive the same MCP tools directly from Claude Code.)
+- **Claude Code + MCP server (zero extra key).** Point Claude Code at the DeepSIFT MCP server
+  (`.mcp.json`) and ask it to investigate `/mnt/evidence` — Claude Code is the agent; every call
+  goes through the typed, audited, guard-railed tools. This is how a judge can drive it directly.
 - **Deterministic:** `python3 demo.py ...` — fixed pipeline, no LLM, for reproducible benchmarks.
 
 ### Guardrails (architectural, enforced in code)

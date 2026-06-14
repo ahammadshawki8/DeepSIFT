@@ -93,12 +93,15 @@ Windows artifacts, registry, browser, network, timeline, threat-intel, correlati
 Every tool returns parsed, audited JSON — never raw shell. You CANNOT run shell commands.
 
 Work like a senior analyst:
-1. Start broad (process list / triage), then form explicit HYPOTHESES about what happened.
+1. Start broad with TRIAGE appropriate to the evidence you were given, then form explicit
+   HYPOTHESES about what happened. For a memory image, start with the process list. For a
+   DISK-ONLY case (no memory image), start with disk/Windows-artifact triage — event logs,
+   shellbags, UserAssist, LNK/Jump Lists, USB history, shimcache, browser history, MFT.
 2. For each hypothesis, choose the tool that would CONFIRM or DISPROVE it. Do not guess —
    if a tool returns nothing, say so; never invent processes, IPs, files, or timestamps.
 3. When evidence contradicts a hypothesis, SELF-CORRECT: revise or disprove it and pivot.
 4. Track confidence honestly. Mark findings inconclusive when the evidence is thin.
-5. The memory image may be captured AFTER the incident — if so, pivot to disk artifacts
+5. A memory image may be captured AFTER the incident — if so, pivot to disk artifacts
    (event logs, LNK/Jump Lists, browser history, MFT) where the earlier evidence lives.
 
 After each tool result, briefly state: which hypothesis it bears on, and confirm/disprove/
@@ -159,19 +162,52 @@ class ReasoningAgent:
             pass
 
     # -- main loop ----------------------------------------------------------------
-    def investigate(self, image_path: str, case_dir: str = "./analysis",
+    def investigate(self, image_path: str = "", case_dir: str = "./analysis",
                     evidence_mount: str = "", extra_context: str = "") -> dict:
+        """Run an autonomous investigation over whatever evidence is supplied.
+
+        Works for three evidence shapes — memory-only, disk-only, or memory+disk —
+        so a disk-only case (no Volatility image) is a first-class autonomous run, not
+        a manual fallback. The bootstrap triage step adapts to what is available.
+        """
         Path(case_dir).mkdir(parents=True, exist_ok=True)
         all_tools = list(self.tools) + [FINISH_TOOL]
 
-        ctx = f"Memory image: {image_path}"
-        if evidence_mount:
-            ctx += f"\nMounted evidence (disk, read-only): {evidence_mount}"
+        self._evidence_mount = evidence_mount
+        has_memory = bool(image_path)
+        has_disk = bool(evidence_mount)
+
+        ctx_lines = []
+        if has_memory:
+            ctx_lines.append(f"Memory image: {image_path}")
+        if has_disk:
+            ctx_lines.append(f"Mounted evidence (disk, read-only): {evidence_mount}")
+        if not ctx_lines:
+            ctx_lines.append("No evidence path supplied — report that no evidence is available.")
         if extra_context:
-            ctx += f"\n{extra_context}"
+            ctx_lines.append(extra_context)
+        ctx = "\n".join(ctx_lines)
+
+        # Pick the bootstrap step + RAG triage hint to match the evidence type, so a
+        # disk-only case starts with disk triage (partitions/artifacts) rather than a
+        # memory process list that has no image to run against.
+        if has_memory:
+            first_step = ("Begin with get_process_list (Hunt Evil baseline triage), then form "
+                          "hypotheses and test them. If the memory image was captured after the "
+                          "incident, pivot to disk artifacts where the earlier evidence lives.")
+            rag_q = "initial triage memory forensics suspicious process baseline"
+        else:
+            first_step = ("This is a DISK-ONLY case (no memory image). Begin by orienting on the "
+                          "mounted evidence: enumerate users/profiles and key artifact locations, "
+                          "then triage Windows artifacts — event logs, shellbags, UserAssist, "
+                          "LNK / Jump Lists, USB history, shimcache, browser history, MFT. Form "
+                          "hypotheses about access/staging/exfiltration and test each with the tool "
+                          "that would confirm or disprove it.")
+            rag_q = "disk forensics triage windows artifacts lnk shellbags event logs exfiltration"
+
         if self.rag:
             try:
-                hint = self.rag.query("initial triage memory forensics suspicious process baseline")
+                hint = self.rag.query(rag_q)
                 if hint:
                     ctx += f"\n\nThreat-intel context:\n{hint[:800]}"
             except Exception:
@@ -179,7 +215,7 @@ class ReasoningAgent:
 
         messages = [{"role": "user", "content":
                      f"Investigate this evidence for unauthorized access / compromise.\n{ctx}\n"
-                     "Begin by listing processes, then form hypotheses and test them."}]
+                     f"{first_step}"}]
 
         findings: dict = {}
         for i in range(self.max_iterations):
@@ -228,7 +264,8 @@ class ReasoningAgent:
 
     def _finalize(self, args: dict, case_dir: str, image_path: str, partial: bool = False) -> dict:
         report = {
-            "image_path": image_path,
+            "image_path": image_path or "(disk-only — no memory image)",
+            "evidence_mount": getattr(self, "_evidence_mount", ""),
             "mode": "agentic-reasoning",
             "summary": args.get("summary", ""),
             "attack_chain": args.get("attack_chain", []),
@@ -274,14 +311,22 @@ def _first_text(content: list) -> str:
 # Curated high-value investigation tools. Presenting a focused set (vs all 148) keeps
 # each LLM request small/cheap and sharpens reasoning; pass core_only=False for everything.
 CORE_TOOLS = {
+    # Memory triage
     "get_process_list", "scan_hidden_processes", "find_injected_code",
     "get_running_services", "get_network_connections", "get_command_history",
-    "get_loaded_dlls", "lookup_ip_reputation", "lookup_hash_reputation",
+    "get_loaded_dlls",
+    # Disk / Windows artifacts (also the disk-only-case core)
     "parse_event_logs", "parse_shimcache", "parse_amcache", "parse_prefetch",
     "parse_mft", "parse_lnk_files", "parse_jump_lists", "parse_registry_hive",
-    "parse_chrome_history", "parse_browser_downloads", "create_super_timeline",
+    "parse_shellbags", "parse_userassist", "parse_recentdocs", "parse_usb_history",
+    "parse_recycle_bin",
+    # Browser / cloud exfil
+    "parse_chrome_history", "parse_browser_downloads",
+    # Disk imaging / timeline
+    "get_partition_table", "get_file_listing", "create_super_timeline", "detect_timestomping",
+    # Threat intel + correlation
+    "lookup_ip_reputation", "lookup_hash_reputation",
     "search_ioc_database", "search_mitre_technique", "correlate_findings",
-    "get_partition_table", "get_file_listing", "detect_timestomping",
 }
 
 

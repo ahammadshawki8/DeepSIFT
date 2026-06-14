@@ -86,6 +86,41 @@ def test_agentic_loop_self_corrects_and_finishes(tmp_path):
     assert (tmp_path / "agent_transcript.json").exists()
 
 
+def test_disk_only_case_is_first_class(tmp_path):
+    """A disk-only case (no memory image) must bootstrap with disk/artifact triage
+    and finish autonomously — not require a memory image."""
+    captured = {}
+
+    class DiskMockLLM:
+        def __init__(self):
+            self.n = 0
+
+        def create_message(self, system, messages, tools):
+            self.n += 1
+            if self.n == 1:
+                captured["bootstrap"] = messages[0]["content"]
+                return {"stop_reason": "tool_use", "content": [
+                    {"type": "tool_use", "id": "t1", "name": "parse_shellbags",
+                     "input": {"ntuser_path": "/e/NTUSER.DAT"}}]}
+            return {"stop_reason": "tool_use", "content": [
+                {"type": "tool_use", "id": "t2", "name": "finish_investigation",
+                 "input": {"summary": "disk-only ok", "confidence": "high",
+                           "suspicious_processes": ["veracrypt.exe"]}}]}
+
+    tools = [{"name": "parse_shellbags", "description": "shellbags",
+              "input_schema": {"type": "object", "properties": {"ntuser_path": {"type": "string"}}}}]
+    agent = ReasoningAgent(llm=DiskMockLLM(), tool_runner=_fake_runner, tools=tools,
+                           max_iterations=5)
+    findings = agent.investigate("", case_dir=str(tmp_path), evidence_mount="/mnt/evidence")
+
+    assert findings["status"] == "complete"
+    assert findings["evidence_mount"] == "/mnt/evidence"
+    assert "disk-only" in findings["image_path"].lower()
+    # bootstrap steered the agent to disk/artifact triage, not a memory process list
+    boot = captured["bootstrap"].lower()
+    assert "disk-only" in boot and ("shellbags" in boot or "lnk" in boot)
+
+
 def test_finish_tool_schema_present():
     assert FINISH_TOOL["name"] == "finish_investigation"
     assert "confidence" in FINISH_TOOL["input_schema"]["properties"]

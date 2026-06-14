@@ -416,18 +416,25 @@ DeepSIFT was designed knowing the competitive landscape. Here is what sets it ap
 
 ## Autonomous Reasoning Loop (agentic) + Architectural Guardrails
 
-DeepSIFT runs two ways:
+DeepSIFT runs three ways:
 
+- **Claude Code + MCP server** *(how a judge can drive it directly, no extra API key)*: point
+  Claude Code at the DeepSIFT MCP server via `.mcp.json` and ask it to investigate `/mnt/evidence`.
+  Claude Code *is* the agent; every action goes through the typed, parsed, audited, guard-railed
+  tools — it cannot run a raw shell command.
 - **`investigate.py` — agentic reasoning** *(the senior-analyst mode)*: an LLM forms explicit
   **hypotheses**, chooses which typed MCP tool to run next, reads the parsed/audited JSON,
   marks each hypothesis **confirmed / disproved / inconclusive with a confidence**, **self-corrects**
-  when a tool fails or a result contradicts a hypothesis (e.g. memory captured post-incident →
-  pivot to disk artifacts), and reconstructs the **attack chain**. Uses Anthropic native tool-use
-  over the 148 typed tools; the model only ever sees structured output and can never run a raw shell
-  command. Every reasoning step and tool call is written to `analysis/agent_transcript.json`.
+  when a tool fails or a result contradicts a hypothesis, and reconstructs the **attack chain**.
+  Works on **any** evidence shape and adapts its first triage step accordingly:
   ```bash
   export ANTHROPIC_API_KEY=sk-ant-...
-  python3 investigate.py --image /cases/ROCBA/Rocba-Memory.raw --evidence-mount /mnt/evidence
+  # disk-only (no memory image) — a first-class autonomous run
+  python3 investigate.py --evidence-mount /mnt/evidence
+  # memory + disk
+  python3 investigate.py --image /cases/<case>/memory.raw --evidence-mount /mnt/evidence
+  # memory-only
+  python3 investigate.py --image /cases/<case>/memory.raw
   ```
 - **`demo.py` — deterministic pipeline**: fixed multi-agent sequence (no LLM/key) for reproducible,
   scriptable benchmark runs.
