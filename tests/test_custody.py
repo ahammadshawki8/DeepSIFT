@@ -47,6 +47,23 @@ def test_audit_hash_chain_detects_tamper(tmp_path, monkeypatch):
     assert res["ok"] is False and res["broken_at"] == 1
 
 
+def test_audit_chain_detects_deleted_entry(tmp_path, monkeypatch):
+    """Deleting a whole entry (no key) must break the chain via the prev_hash linkage,
+    not just in-place content edits. Also: the verified head is the last entry's hash."""
+    monkeypatch.setattr(audit, "_get_dirs", lambda: (tmp_path, tmp_path))
+    for i in range(4):
+        audit.log_tool_execution(f"tool{i}", [f"vol{i}"], f"out{i}")
+    log = tmp_path / "forensic_audit.log"
+    intact = audit.verify_audit_chain(str(log))
+    assert intact["ok"] and intact["head"] != "0" * 64
+
+    lines = log.read_text().splitlines()
+    del lines[1]  # drop a middle entry
+    log.write_text("\n".join(lines) + "\n")
+    res = audit.verify_audit_chain(str(log))
+    assert res["ok"] is False and "inserted/deleted" in res.get("reason", "")
+
+
 def test_audit_hmac_resists_forgery(tmp_path, monkeypatch):
     """With an external key, an attacker who recomputes the SHA-256 hash chain still
     cannot forge a valid HMAC — the tamper is caught."""

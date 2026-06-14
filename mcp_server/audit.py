@@ -53,8 +53,11 @@ _FORBIDDEN_TOKENS = {">", ">>", "|", ";", "&&", "||", "`", "$(", "&"}
 
 def guard_command(cmd) -> None:
     """Reject any command that invokes a destructive/exfiltration binary or uses
-    shell redirection/chaining. Raises PermissionError. Architectural enforcement —
-    every tool execution path routes through this before subprocess.run().
+    shell redirection/chaining. Raises PermissionError. Defense-in-depth: applied on the
+    parameter-rich binary launchers (Volatility `_run`, Windows-artifact/EZ Tools `_run`,
+    registry `_run_ez`) before subprocess.run(). The primary control is that every tool
+    hard-codes its own forensic binary and uses an argv list (never a shell), so the model
+    can never choose the binary or smuggle a second command in the first place.
 
     Accepts a command as a list (argv) — the only form tools use. The basename of
     argv[0] is checked against the forbidden set; dotnet/vol/EZ tool .dll launches
@@ -330,7 +333,10 @@ def verify_audit_chain(audit_log_path: str = "") -> dict:
             if "entry_hash" not in e:
                 continue
             expect = _entry_hash(e.get("prev_hash", _GENESIS), e)
-            if e.get("prev_hash") != prev and prev != _GENESIS:
+            # Linkage: this entry must point at the previous verified entry's hash.
+            # Advancing `prev` each iteration is what makes deletion/insertion/reorder
+            # detectable — without it, only in-place content edits would be caught.
+            if e.get("prev_hash") != prev:
                 return {"ok": False, "entries": n, "broken_at": i, "head": prev,
                         "reason": "prev_hash mismatch (entry inserted/deleted)",
                         "hmac_signed": saw_hmac, "hmac_ok": hmac_ok}
@@ -338,6 +344,7 @@ def verify_audit_chain(audit_log_path: str = "") -> dict:
                 return {"ok": False, "entries": n, "broken_at": i, "head": prev,
                         "reason": "entry_hash mismatch (entry modified)",
                         "hmac_signed": saw_hmac, "hmac_ok": hmac_ok}
+            prev = e["entry_hash"]
             # HMAC verification (only when signed entries exist and we hold the key).
             if "entry_hmac" in e:
                 saw_hmac = True
