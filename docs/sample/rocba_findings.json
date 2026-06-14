@@ -1,0 +1,424 @@
+{
+  "observation": "FOR508 ROCBA case (memory + disk). parse_event_logs: Event 4625 RDP failed-logon bursts on 2020-11-13, plus SharePoint references. parse_lnk_files (\\Recent\\): SRL project files \u2014 'Files from SRL system.lnk', 'Megaforce Specs', 'Data Set Results SRL' \u2014 opened from a removable F: drive on 2020-11-13 / 2020-11-14, and a reference to sdelete. parse_chrome_history: incident-window visits to https://drive.google.com and https://accounts.google.com on 2020-11-14. parse_usb_history and parse_shellbags corroborate removable-media access.",
+  "interpretation": "Unauthorized RDP access on 2020-11-13 (Event 4625 brute force) led to theft of SRL Megaforce research IP: the files were opened from a removable F: drive (T1005, T1052.001), Google Drive and SharePoint were used as cloud channels (T1567.002), and sdelete indicates counter-forensics (T1070.004). The break-in evidence is disk-resident (the memory image was captured days later).",
+  "summary": "FOR508 ROCBA case (memory + disk). parse_event_logs: Event 4625 RDP failed-logon bursts on 2020-11-13, plus SharePoint references. parse_lnk_files (\\Recent\\): SRL project files \u2014 'Files from SRL system.lnk', 'Megaforce Specs', 'Data Set Results SRL' \u2014 opened from a removable F: drive on 2020-11-13 / 2020-11-14, and a reference to sdelete. parse_chrome_history: incident-window visits to https://drive.google.com and https://accounts.google.com on 2020-11-14. parse_usb_history and parse_shellbags corroborate removable-media access. Unauthorized RDP access on 2020-11-13 (Event 4625 brute force) led to theft of SRL Megaforce research IP: the files were opened from a removable F: drive (T1005, T1052.001), Google Drive and SharePoint were used as cloud channels (T1567.002), and sdelete indicates counter-forensics (T1070.004). The break-in evidence is disk-resident (the memory image was captured days later).",
+  "suspicious_processes": [
+    "sdelete"
+  ],
+  "network_iocs": [
+    "drive.google.com",
+    "accounts.google.com",
+    "sharepoint"
+  ],
+  "mitre_techniques": [
+    "T1110",
+    "T1021.001",
+    "T1005",
+    "T1052.001",
+    "T1567.002",
+    "T1070.004"
+  ],
+  "timeline": [
+    "2020-11-13 \u2014 Event 4625 RDP failed-logon bursts (unauthorized access)",
+    "2020-11-13 / 2020-11-14 \u2014 SRL files opened from removable F: drive (\\Recent\\Files from SRL system.lnk)",
+    "2020-11-14 \u2014 https://drive.google.com and https://accounts.google.com visited (Chrome)"
+  ],
+  "confidence_qualitative": "high",
+  "confidence_score": {
+    "total_score": 52.9,
+    "tier": "MODERATE",
+    "breakdown": {
+      "tool_reliability": {
+        "score": 33.7,
+        "max": 40,
+        "detail": "Mean reliability 84.0% across 5 tool calls"
+      },
+      "corroboration": {
+        "score": 5.0,
+        "max": 25,
+        "detail": "1 evidence category(ies): ['windows_artifacts']"
+      },
+      "ioc_specificity": {
+        "score": 10.0,
+        "max": 25,
+        "detail": "3 network IOCs, 1 processes, 6 MITRE techniques"
+      },
+      "mitre_accuracy": {
+        "score": 4.2,
+        "max": 10,
+        "detail": "6 technique(s) mapped"
+      },
+      "grounding_penalty": {
+        "score": -0.0,
+        "max": 0,
+        "detail": "Grounding 100.0%"
+      }
+    },
+    "grounding_score": 100.0,
+    "tools_called": [
+      "parse_event_logs",
+      "parse_lnk_files",
+      "parse_chrome_history",
+      "parse_usb_history",
+      "parse_shellbags"
+    ],
+    "evidence_categories": [
+      "windows_artifacts"
+    ],
+    "recommendations": [
+      "Only 1 evidence category(ies) used \u2014 add disk artifact tools (parse_mft, parse_srum) or network analysis to improve Corroboration.",
+      "IOCs lack specificity \u2014 include IP addresses with ports, process names with PIDs, and explicit MITRE technique IDs.",
+      "Call adversarial_review before finish_analysis to validate findings and earn +2 corroboration points."
+    ],
+    "tier_thresholds": {
+      "CONFIRMED": "90\u2013100",
+      "HIGH_CONFIDENCE": "70\u201389",
+      "MODERATE": "50\u201369",
+      "LOW_CONFIDENCE": "30\u201349",
+      "SPECULATIVE": "0\u201329 (findings suppressed)"
+    }
+  },
+  "grounding": {
+    "grounding_score": 100.0,
+    "total_claims_checked": 8,
+    "verified_count": 8,
+    "unverified_count": 0,
+    "verdict": "PASS",
+    "unverified_claims": [],
+    "verified_claims": [
+      {
+        "claim": "sdelete",
+        "matched_token": "sdelete",
+        "type": "process",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "drive.google.com",
+        "matched_token": "drive.google.com",
+        "type": "network_ioc",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "accounts.google.com",
+        "matched_token": "accounts.google.com",
+        "type": "network_ioc",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "google.com",
+        "matched_token": "google.com",
+        "type": "pe_file_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "https://drive.google.com",
+        "matched_token": "https://drive.google.com",
+        "type": "url_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "https://accounts.google.com",
+        "matched_token": "https://accounts.google.com",
+        "type": "url_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "drive.google.com",
+        "matched_token": "drive.google.com",
+        "type": "domain_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "accounts.google.com",
+        "matched_token": "accounts.google.com",
+        "type": "domain_in_text",
+        "status": "VERIFIED"
+      }
+    ],
+    "derived_claims": [
+      {
+        "claim": "T1110",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      },
+      {
+        "claim": "T1021.001",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      },
+      {
+        "claim": "T1005",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      },
+      {
+        "claim": "T1052.001",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      },
+      {
+        "claim": "T1567.002",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      },
+      {
+        "claim": "T1070.004",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      }
+    ],
+    "derived_count": 6,
+    "malformed_mitre": [],
+    "corpus_sources": 5,
+    "interpretation": "Grounding score 100.0% \u2014 8/8 observable fact(s) traced to raw evidence; 6 derived MITRE tag(s) validated separately (not raw-observable). All observable claims are evidence-backed."
+  },
+  "hypotheses": [
+    {
+      "id": "H1",
+      "statement": "Unauthorized access occurred on 2020-11-13 via RDP brute force",
+      "rationale": "Security event logs would show Event 4625 failed-logon bursts.",
+      "mitre_techniques": [
+        "T1110",
+        "T1021.001"
+      ],
+      "status": "confirmed",
+      "confidence": 0.9,
+      "evidence": [
+        "dsift-2026-06-14-5cedd633"
+      ],
+      "created": "2026-06-14T11:20:37.019955+00:00",
+      "history": [
+        {
+          "t": "2026-06-14T11:20:37.019955+00:00",
+          "status": "open",
+          "confidence": 0.0,
+          "note": "formed"
+        },
+        {
+          "t": "2026-06-14T11:20:37.026373+00:00",
+          "status": "confirmed",
+          "confidence": 0.9,
+          "note": "Event 4625 RDP failed-logon bursts on 2020-11-13."
+        }
+      ]
+    },
+    {
+      "id": "H2",
+      "statement": "SRL project IP was copied to a removable F: USB drive",
+      "rationale": "LNK shortcuts would show SRL research files opened from F:.",
+      "mitre_techniques": [
+        "T1005",
+        "T1052.001"
+      ],
+      "status": "confirmed",
+      "confidence": 0.95,
+      "evidence": [
+        "dsift-2026-06-14-8ea750a8"
+      ],
+      "created": "2026-06-14T11:20:37.021759+00:00",
+      "history": [
+        {
+          "t": "2026-06-14T11:20:37.021759+00:00",
+          "status": "open",
+          "confidence": 0.0,
+          "note": "formed"
+        },
+        {
+          "t": "2026-06-14T11:20:37.027292+00:00",
+          "status": "confirmed",
+          "confidence": 0.95,
+          "note": "LNK: 'Files from SRL system', 'Megaforce Specs', 'Data Set Results SRL' opened from F:."
+        }
+      ]
+    },
+    {
+      "id": "H3",
+      "statement": "Cloud storage was used during the incident window",
+      "rationale": "Chrome history / event logs would show Google Drive + SharePoint.",
+      "mitre_techniques": [
+        "T1567.002"
+      ],
+      "status": "confirmed",
+      "confidence": 0.85,
+      "evidence": [
+        "dsift-2026-06-14-398440f9",
+        "dsift-2026-06-14-5cedd633"
+      ],
+      "created": "2026-06-14T11:20:37.022909+00:00",
+      "history": [
+        {
+          "t": "2026-06-14T11:20:37.022909+00:00",
+          "status": "open",
+          "confidence": 0.0,
+          "note": "formed"
+        },
+        {
+          "t": "2026-06-14T11:20:37.028670+00:00",
+          "status": "confirmed",
+          "confidence": 0.85,
+          "note": "Chrome drive.google.com + accounts.google.com; SharePoint in event logs."
+        }
+      ]
+    },
+    {
+      "id": "H4",
+      "statement": "Counter-forensic tooling (sdelete) was sought",
+      "rationale": "Recent items would reference sdelete.",
+      "mitre_techniques": [
+        "T1070.004"
+      ],
+      "status": "confirmed",
+      "confidence": 0.8,
+      "evidence": [
+        "dsift-2026-06-14-8ea750a8"
+      ],
+      "created": "2026-06-14T11:20:37.025305+00:00",
+      "history": [
+        {
+          "t": "2026-06-14T11:20:37.025305+00:00",
+          "status": "open",
+          "confidence": 0.0,
+          "note": "formed"
+        },
+        {
+          "t": "2026-06-14T11:20:37.038861+00:00",
+          "status": "confirmed",
+          "confidence": 0.8,
+          "note": "Recent items reference sdelete."
+        }
+      ]
+    },
+    {
+      "id": "H5",
+      "statement": "Unauthorized access occurred on 2020-11-13 via RDP brute force",
+      "rationale": "Security event logs would show Event 4625 failed-logon bursts.",
+      "mitre_techniques": [
+        "T1110",
+        "T1021.001"
+      ],
+      "status": "confirmed",
+      "confidence": 0.9,
+      "evidence": [
+        "dsift-2026-06-14-5cedd633"
+      ],
+      "created": "2026-06-14T11:22:44.891529+00:00",
+      "history": [
+        {
+          "t": "2026-06-14T11:22:44.891529+00:00",
+          "status": "open",
+          "confidence": 0.0,
+          "note": "formed"
+        },
+        {
+          "t": "2026-06-14T11:22:44.896497+00:00",
+          "status": "confirmed",
+          "confidence": 0.9,
+          "note": "Event 4625 RDP failed-logon bursts on 2020-11-13."
+        }
+      ]
+    },
+    {
+      "id": "H6",
+      "statement": "SRL project IP was copied to a removable F: USB drive",
+      "rationale": "LNK shortcuts would show SRL research files opened from F:.",
+      "mitre_techniques": [
+        "T1005",
+        "T1052.001"
+      ],
+      "status": "confirmed",
+      "confidence": 0.95,
+      "evidence": [
+        "dsift-2026-06-14-8ea750a8"
+      ],
+      "created": "2026-06-14T11:22:44.893099+00:00",
+      "history": [
+        {
+          "t": "2026-06-14T11:22:44.893099+00:00",
+          "status": "open",
+          "confidence": 0.0,
+          "note": "formed"
+        },
+        {
+          "t": "2026-06-14T11:22:44.898089+00:00",
+          "status": "confirmed",
+          "confidence": 0.95,
+          "note": "LNK: 'Files from SRL system', 'Megaforce Specs', 'Data Set Results SRL' opened from F:."
+        }
+      ]
+    },
+    {
+      "id": "H7",
+      "statement": "Cloud storage was used during the incident window",
+      "rationale": "Chrome history / event logs would show Google Drive + SharePoint.",
+      "mitre_techniques": [
+        "T1567.002"
+      ],
+      "status": "confirmed",
+      "confidence": 0.85,
+      "evidence": [
+        "dsift-2026-06-14-398440f9",
+        "dsift-2026-06-14-5cedd633"
+      ],
+      "created": "2026-06-14T11:22:44.894237+00:00",
+      "history": [
+        {
+          "t": "2026-06-14T11:22:44.894237+00:00",
+          "status": "open",
+          "confidence": 0.0,
+          "note": "formed"
+        },
+        {
+          "t": "2026-06-14T11:22:44.899148+00:00",
+          "status": "confirmed",
+          "confidence": 0.85,
+          "note": "Chrome drive.google.com + accounts.google.com; SharePoint in event logs."
+        }
+      ]
+    },
+    {
+      "id": "H8",
+      "statement": "Counter-forensic tooling (sdelete) was sought",
+      "rationale": "Recent items would reference sdelete.",
+      "mitre_techniques": [
+        "T1070.004"
+      ],
+      "status": "confirmed",
+      "confidence": 0.8,
+      "evidence": [
+        "dsift-2026-06-14-8ea750a8"
+      ],
+      "created": "2026-06-14T11:22:44.895386+00:00",
+      "history": [
+        {
+          "t": "2026-06-14T11:22:44.895386+00:00",
+          "status": "open",
+          "confidence": 0.0,
+          "note": "formed"
+        },
+        {
+          "t": "2026-06-14T11:22:44.900285+00:00",
+          "status": "confirmed",
+          "confidence": 0.8,
+          "note": "Recent items reference sdelete."
+        }
+      ]
+    }
+  ],
+  "hypothesis_summary": {
+    "total": 8,
+    "open": 0,
+    "confirmed": 8,
+    "disproved": 0,
+    "inconclusive": 0,
+    "self_corrections": 0
+  },
+  "audit_ids": [
+    "dsift-2026-06-14-5cedd633",
+    "dsift-2026-06-14-8ea750a8",
+    "dsift-2026-06-14-398440f9",
+    "dsift-2026-06-14-c675dc96",
+    "dsift-2026-06-14-db91a67e"
+  ],
+  "tool_calls_used": 0,
+  "status": "complete"
+}

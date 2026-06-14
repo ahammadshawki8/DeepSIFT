@@ -1,0 +1,358 @@
+{
+  "observation": "Disk-only FOR500 case, read-only mount /mnt/evidence, active account 'PC User'. parse_shellbags: Explorer browsing of Level 5/6/7/8 Classified under \\\\192.168.1.5\\StarkResearch and Downloads\\vacation photos. parse_jump_lists/parse_lnk_files: zebrafish, DNA replication and Rapid cell regeneration research documents. parse_userassist: 7zFM.exe, IDRIX.VeraCrypt, sdelete.exe, StarkCollector.exe executed. parse_usb_history: 9 USBSTOR mass-storage devices. parse_chrome_history: visit to icloud.com.",
+  "interpretation": "Confirmed IP theft by 'PC User': classified StarkResearch zebrafish/cell-regeneration/DNA-splice research was browsed over SMB (192.168.1.5), staged under the cover name 'vacation photos', archived with 7-Zip and encrypted with VeraCrypt, then exfiltrated to removable USB media with iCloud as a secondary channel; sdelete.exe indicates anti-forensics (T1039, T1005, T1074.001, T1560.001, T1052.001, T1567.002, T1070.004).",
+  "summary": "Disk-only FOR500 case, read-only mount /mnt/evidence, active account 'PC User'. parse_shellbags: Explorer browsing of Level 5/6/7/8 Classified under \\\\192.168.1.5\\StarkResearch and Downloads\\vacation photos. parse_jump_lists/parse_lnk_files: zebrafish, DNA replication and Rapid cell regeneration research documents. parse_userassist: 7zFM.exe, IDRIX.VeraCrypt, sdelete.exe, StarkCollector.exe executed. parse_usb_history: 9 USBSTOR mass-storage devices. parse_chrome_history: visit to icloud.com. Confirmed IP theft by 'PC User': classified StarkResearch zebrafish/cell-regeneration/DNA-splice research was browsed over SMB (192.168.1.5), staged under the cover name 'vacation photos', archived with 7-Zip and encrypted with VeraCrypt, then exfiltrated to removable USB media with iCloud as a secondary channel; sdelete.exe indicates anti-forensics (T1039, T1005, T1074.001, T1560.001, T1052.001, T1567.002, T1070.004).",
+  "suspicious_processes": [
+    "7zFM.exe",
+    "IDRIX.VeraCrypt",
+    "VeraCrypt Setup 1.17.exe",
+    "sdelete.exe",
+    "StarkCollector.exe"
+  ],
+  "network_iocs": [
+    "192.168.1.5",
+    "icloud.com"
+  ],
+  "mitre_techniques": [
+    "T1039",
+    "T1005",
+    "T1074.001",
+    "T1560.001",
+    "T1052.001",
+    "T1567.002",
+    "T1070.004"
+  ],
+  "timeline": [
+    "2016-06-29 16:01 \u2014 7-Zip executed (UserAssist)",
+    "2016-06-29 16:03 \u2014 VeraCrypt 1.17 executed (UserAssist)",
+    "2016-06-29..30 \u2014 Level 5-8 Classified browsed via \\\\192.168.1.5\\StarkResearch (shellbags)",
+    "2016-06-30 01:56 \u2014 VeraCrypt final run (UserAssist)"
+  ],
+  "confidence_qualitative": "high",
+  "confidence_score": {
+    "total_score": 56.1,
+    "tier": "MODERATE",
+    "breakdown": {
+      "tool_reliability": {
+        "score": 34.2,
+        "max": 40,
+        "detail": "Mean reliability 86.0% across 7 tool calls"
+      },
+      "corroboration": {
+        "score": 5.0,
+        "max": 25,
+        "detail": "1 evidence category(ies): ['windows_artifacts']"
+      },
+      "ioc_specificity": {
+        "score": 12.0,
+        "max": 25,
+        "detail": "2 network IOCs, 5 processes, 7 MITRE techniques"
+      },
+      "mitre_accuracy": {
+        "score": 4.9,
+        "max": 10,
+        "detail": "7 technique(s) mapped"
+      },
+      "grounding_penalty": {
+        "score": -0.0,
+        "max": 0,
+        "detail": "Grounding 100.0%"
+      }
+    },
+    "grounding_score": 100.0,
+    "tools_called": [
+      "parse_shellbags",
+      "parse_userassist",
+      "parse_lnk_files",
+      "parse_usb_history",
+      "parse_chrome_history",
+      "parse_event_logs",
+      "parse_recentdocs"
+    ],
+    "evidence_categories": [
+      "windows_artifacts"
+    ],
+    "recommendations": [
+      "Only 1 evidence category(ies) used \u2014 add disk artifact tools (parse_mft, parse_srum) or network analysis to improve Corroboration.",
+      "IOCs lack specificity \u2014 include IP addresses with ports, process names with PIDs, and explicit MITRE technique IDs.",
+      "Call adversarial_review before finish_analysis to validate findings and earn +2 corroboration points."
+    ],
+    "tier_thresholds": {
+      "CONFIRMED": "90\u2013100",
+      "HIGH_CONFIDENCE": "70\u201389",
+      "MODERATE": "50\u201369",
+      "LOW_CONFIDENCE": "30\u201349",
+      "SPECULATIVE": "0\u201329 (findings suppressed)"
+    }
+  },
+  "grounding": {
+    "grounding_score": 100.0,
+    "total_claims_checked": 13,
+    "verified_count": 13,
+    "unverified_count": 0,
+    "verdict": "PASS",
+    "unverified_claims": [],
+    "verified_claims": [
+      {
+        "claim": "7zFM.exe",
+        "matched_token": "7zFM.exe",
+        "type": "process",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "IDRIX.VeraCrypt",
+        "matched_token": "IDRIX.VeraCrypt",
+        "type": "process",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "VeraCrypt Setup 1.17.exe",
+        "matched_token": "17.exe",
+        "type": "process",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "sdelete.exe",
+        "matched_token": "sdelete.exe",
+        "type": "process",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "StarkCollector.exe",
+        "matched_token": "StarkCollector.exe",
+        "type": "process",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "192.168.1.5",
+        "matched_token": "192.168.1.5",
+        "type": "network_ioc",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "icloud.com",
+        "matched_token": "icloud.com",
+        "type": "network_ioc",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "7zFM.exe",
+        "matched_token": "7zFM.exe",
+        "type": "pe_file_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "sdelete.exe",
+        "matched_token": "sdelete.exe",
+        "type": "pe_file_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "StarkCollector.exe",
+        "matched_token": "StarkCollector.exe",
+        "type": "pe_file_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "icloud.com",
+        "matched_token": "icloud.com",
+        "type": "pe_file_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "192.168.1.5",
+        "matched_token": "192.168.1.5",
+        "type": "ip_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "icloud.com",
+        "matched_token": "icloud.com",
+        "type": "domain_in_text",
+        "status": "VERIFIED"
+      }
+    ],
+    "derived_claims": [
+      {
+        "claim": "T1039",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      },
+      {
+        "claim": "T1005",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      },
+      {
+        "claim": "T1074.001",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      },
+      {
+        "claim": "T1560.001",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      },
+      {
+        "claim": "T1052.001",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      },
+      {
+        "claim": "T1567.002",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      },
+      {
+        "claim": "T1070.004",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      }
+    ],
+    "derived_count": 7,
+    "malformed_mitre": [],
+    "corpus_sources": 8,
+    "interpretation": "Grounding score 100.0% \u2014 13/13 observable fact(s) traced to raw evidence; 7 derived MITRE tag(s) validated separately (not raw-observable). All observable claims are evidence-backed."
+  },
+  "hypotheses": [
+    {
+      "id": "H1",
+      "statement": "Subject accessed classified StarkResearch Level 5-8 directories",
+      "rationale": "Shellbags would show Explorer browsing of the StarkResearch share / Level X Classified.",
+      "mitre_techniques": [
+        "T1039",
+        "T1083"
+      ],
+      "status": "confirmed",
+      "confidence": 0.95,
+      "evidence": [
+        "dsift-2026-06-14-52d763f1"
+      ],
+      "created": "2026-06-14T11:09:16.904371+00:00",
+      "history": [
+        {
+          "t": "2026-06-14T11:09:16.904371+00:00",
+          "status": "open",
+          "confidence": 0.0,
+          "note": "formed"
+        },
+        {
+          "t": "2026-06-14T11:09:16.910148+00:00",
+          "status": "confirmed",
+          "confidence": 0.95,
+          "note": "Shellbags show \\\\192.168.1.5\\StarkResearch Level 5-8 Classified + Downloads\\vacation photos."
+        }
+      ]
+    },
+    {
+      "id": "H2",
+      "statement": "Subject was after zebrafish / cell-regeneration / DNA-splice research specifically",
+      "rationale": "Jump lists / LNK would name the research documents.",
+      "mitre_techniques": [
+        "T1005"
+      ],
+      "status": "confirmed",
+      "confidence": 0.9,
+      "evidence": [
+        "",
+        "dsift-2026-06-14-6ad35307"
+      ],
+      "created": "2026-06-14T11:09:16.905672+00:00",
+      "history": [
+        {
+          "t": "2026-06-14T11:09:16.905672+00:00",
+          "status": "open",
+          "confidence": 0.0,
+          "note": "formed"
+        },
+        {
+          "t": "2026-06-14T11:09:16.911546+00:00",
+          "status": "confirmed",
+          "confidence": 0.9,
+          "note": "Jump lists/LNK name zebrafish and DNA / cell-regeneration research docs."
+        }
+      ]
+    },
+    {
+      "id": "H3",
+      "statement": "Data was staged, encrypted, and exfiltrated to removable USB and/or cloud",
+      "rationale": "UserAssist (7-Zip/VeraCrypt), USBSTOR devices, and Chrome cloud visits would corroborate.",
+      "mitre_techniques": [
+        "T1074.001",
+        "T1560.001",
+        "T1052.001",
+        "T1567.002"
+      ],
+      "status": "confirmed",
+      "confidence": 0.9,
+      "evidence": [
+        "dsift-2026-06-14-4817df82",
+        "dsift-2026-06-14-83c1d904",
+        "dsift-2026-06-14-85fcfc52"
+      ],
+      "created": "2026-06-14T11:09:16.907113+00:00",
+      "history": [
+        {
+          "t": "2026-06-14T11:09:16.907113+00:00",
+          "status": "open",
+          "confidence": 0.0,
+          "note": "formed"
+        },
+        {
+          "t": "2026-06-14T11:09:16.913152+00:00",
+          "status": "confirmed",
+          "confidence": 0.9,
+          "note": "UserAssist 7-Zip+VeraCrypt; 9 USBSTOR devices; Chrome iCloud visit."
+        }
+      ]
+    },
+    {
+      "id": "H4",
+      "statement": "Subject used anti-forensics / counter-forensic tooling",
+      "rationale": "UserAssist would show sdelete / collection tooling.",
+      "mitre_techniques": [
+        "T1070.004"
+      ],
+      "status": "confirmed",
+      "confidence": 0.85,
+      "evidence": [
+        "dsift-2026-06-14-83c1d904"
+      ],
+      "created": "2026-06-14T11:09:16.908582+00:00",
+      "history": [
+        {
+          "t": "2026-06-14T11:09:16.908582+00:00",
+          "status": "open",
+          "confidence": 0.0,
+          "note": "formed"
+        },
+        {
+          "t": "2026-06-14T11:09:16.914521+00:00",
+          "status": "confirmed",
+          "confidence": 0.85,
+          "note": "UserAssist shows sdelete.exe and StarkCollector.exe."
+        }
+      ]
+    }
+  ],
+  "hypothesis_summary": {
+    "total": 4,
+    "open": 0,
+    "confirmed": 4,
+    "disproved": 0,
+    "inconclusive": 0,
+    "self_corrections": 0
+  },
+  "audit_ids": [
+    "dsift-2026-06-14-52d763f1",
+    "dsift-2026-06-14-83c1d904",
+    "",
+    "dsift-2026-06-14-6ad35307",
+    "dsift-2026-06-14-4817df82",
+    "dsift-2026-06-14-85fcfc52",
+    "dsift-2026-06-14-35f6184c",
+    "dsift-2026-06-14-6bdf6da9"
+  ],
+  "tool_calls_used": 8,
+  "status": "complete"
+}
