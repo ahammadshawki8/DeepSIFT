@@ -39,10 +39,37 @@ logging before the LLM ever sees a single byte of evidence.
 
 ---
 
+## Table of Contents
+
+1. [Why DeepSIFT](#why-deepsift)
+2. [Architecture](#architecture)
+3. [How DeepSIFT Eliminates Hallucination](#how-deepsift-eliminates-hallucination)
+4. [Tool Inventory (155 MCP tools)](#tool-inventory-155-mcp-tools)
+5. [Investigation Workflow](#investigation-workflow)
+6. [What Sets DeepSIFT Apart](#what-sets-deepsift-apart)
+7. [How to Run It (three ways)](#how-to-run-it-three-ways)
+8. [Examiner Portal — Human Review](#examiner-portal--human-review)
+9. [Architectural Guardrails](#architectural-guardrails)
+10. [Validated Results](#validated-results)
+   - [ROCBA — FOR508 (memory + disk)](#rocba--for508-memory--disk)
+   - [Abducted Zebrafish / Vanko — FOR500 (disk-only)](#abducted-zebrafish--vanko--for500-disk-only)
+   - [Production Hardening](#production-hardening)
+11. [Setup & Installation](#setup--installation)
+12. [Verify It Yourself (no API key)](#verify-it-yourself-no-api-key)
+13. [Evidence Integrity & Chain of Custody](#evidence-integrity--chain-of-custody)
+14. [RAG Knowledge Base](#rag-knowledge-base)
+15. [Benchmarking](#benchmarking)
+16. [Project Structure](#project-structure)
+17. [MITRE ATT&CK Coverage](#mitre-attck-coverage)
+18. [Environment Variables](#environment-variables)
+19. [License](#license)
+
+---
+
 ## Why DeepSIFT
 
 Protocol SIFT (the prompt-only baseline) passes raw CLI output directly into LLM context,
-relies on natural-language safety rules, and has no structured parsing. This creates three
+relies on natural-language safety rules, and has no structured parsing. This creates the
 failure modes that DeepSIFT eliminates architecturally:
 
 | Problem | Protocol SIFT | DeepSIFT |
@@ -82,14 +109,15 @@ flowchart TD
 
 ---
 
-## Tool Inventory
+## Tool Inventory (155 MCP tools)
 
-DeepSIFT exposes **148 typed forensic MCP tools** across 18 categories (plus a
-`check_tool_availability` preflight tool). No `run_shell`, no `execute_command` — every
-tool has a typed signature, a middleware parser, and returns RAG-enriched structured JSON.
-Run `python3 preflight.py` first to see which tool groups are operational in your
-environment; a tool whose backing binary is missing returns a clear "unavailable" status
-with an install hint instead of crashing the investigation.
+DeepSIFT exposes **155 MCP tools**: **148 typed forensic tools** across 18 categories, plus
+**7 control/utility tools** (preflight self-check, the hypothesis-ledger trio, and the
+evidence-index trio). No `run_shell`, no `execute_command` — every tool has a typed signature,
+a middleware parser, and returns RAG-enriched structured JSON. Run `python3 preflight.py` first
+to see which tool groups are operational in your environment; a tool whose backing binary is
+missing returns a clear "unavailable" status with an install hint instead of crashing the
+investigation.
 
 ### Memory Forensics — Core (Volatility 3)
 
@@ -185,12 +213,24 @@ with an install hint instead of crashing the investigation.
 | `adversarial_review` | Challenge current hypothesis with counter-arguments before `finish_analysis` |
 | `detect_contradictions` | Find UNRESOLVED_CONTRADICTION findings: DKOM, ghost PIDs, log wipes, hidden services |
 
-### Investigation Control
+### Investigation Control & Autonomous Reasoning
 
 | Tool | Purpose |
 |---|---|
+| `record_hypothesis` | Record an explicit, falsifiable hypothesis before testing it (returns `H1`, `H2`, …) |
+| `update_hypothesis` | Confirm / disprove / mark-inconclusive a hypothesis with confidence + evidence `audit_ids` (captures self-correction) |
+| `get_investigation_state` | Review the live hypothesis ledger + summary (confirmed/disproved/self-corrections) |
 | `verify_findings` | Verbatim token grounding check — every claim vs raw export bytes (run before `finish_analysis`) |
-| `finish_analysis` | Structured report with grounding score, 4-axis confidence score, `audit_ids` citation |
+| `finish_analysis` | Structured report with grounding score, 4-axis confidence score, hypothesis ledger, `audit_ids` citation |
+
+### Scale, Health & Self-Verification
+
+| Tool | Purpose |
+|---|---|
+| `index_evidence` | Ingest the **full** artifact rows (EZ tools' `exports/*.csv`) into a stdlib SQLite store |
+| `query_evidence` | Return only the matching subset from the indexed store — reach a 100k-row MFT without dumping it |
+| `evidence_store_stats` | Row counts per indexed artifact source |
+| `check_tool_availability` | Preflight: which external tool groups are operational in this environment, with install hints |
 
 ### YARA Hunting
 
@@ -353,7 +393,7 @@ with an install hint instead of crashing the investigation.
 
 ---
 
-## Hallucination Reduction Pipeline
+## How DeepSIFT Eliminates Hallucination
 
 ```mermaid
 flowchart LR
@@ -442,7 +482,7 @@ prompt-level suggestion to an **architecturally enforced guarantee**:
 
 ---
 
-## Autonomous Reasoning Loop (agentic) + Architectural Guardrails
+## How to Run It (three ways)
 
 DeepSIFT runs three ways:
 
@@ -470,7 +510,7 @@ DeepSIFT runs three ways:
 - **`demo.py` — deterministic pipeline**: fixed multi-agent sequence (no LLM/key) for reproducible,
   scriptable benchmark runs.
 
-### Examiner Portal (human review — zero dependencies)
+## Examiner Portal — Human Review
 
 A reviewer or judge can inspect a completed investigation in one command — **no pip installs**
 (Python standard library only):
@@ -491,7 +531,12 @@ check), browse **multiple cases**, and perform an **examiner sign-off** — appr
 and produce an **HMAC-signed, tamper-evident manifest** binding the findings hash + audit-chain head.
 This directly answers the "usability" and "audit trails" judging criteria.
 
-**Architectural guardrails (enforced in code, not prompts):**
+---
+
+## Architectural Guardrails
+
+Enforced in code, not prompts — these raise exceptions; the model cannot talk its way past them:
+
 - `mcp_server.audit.guard_command` blocks destructive/exfiltration binaries (`rm`, `dd`, `shred`,
   `mkfs`, `wget`, `curl`, `scp`, `ssh`, `nc`, shells…) and shell redirection/chaining tokens at
   **every** tool-execution choke point — the server physically cannot run them.
@@ -510,15 +555,21 @@ This directly answers the "usability" and "audit trails" judging criteria.
   returns only the matching subset — reach a 100k-row MFT or full shellbag set without dumping it.
   A dependency-light alternative to standing up OpenSearch.
 
-## Validated Results — ROCBA Case (Memory + Disk)
+## Validated Results
+
+DeepSIFT has been validated end-to-end on **two organizer-provided SANS cases** — one memory+disk,
+one disk-only — each scored by `benchmark/scorer.py` against published ground truth and
+**independently reproducible** by a judge via `python3 verify_findings.py`.
+
+| Case | Evidence | Protocol SIFT baseline | **DeepSIFT** | Hallucinations | Claim grounding |
+|---|---|:---:|:---:|:---:|:---:|
+| **ROCBA** (FOR508) | memory + disk | 0 / 4 (0 %) | **4 / 4 (100 %)** | 0 | **100 %** |
+| **Abducted Zebrafish / Vanko** (FOR500) | disk-only | 3 / 4 (75 %) | **4 / 4 (100 %)** | 0 | **100 %** |
+
+### ROCBA — FOR508 (memory + disk)
 
 End-to-end benchmark on the SANS FOR508 **ROCBA** case (`Rocba-Memory.raw` 18 GB +
-`rocba-cdrive.e01` 81 GiB C: volume), scored against ground truth:
-
-| | Protocol SIFT (memory-only) | **DeepSIFT (memory + disk)** |
-|---|---|---|
-| Accuracy (`must_identify`) | 0 / 4 (0 %) | **4 / 4 (100 %)** |
-| Hallucinations | 0 | **0** |
+`rocba-cdrive.e01` 81 GiB C: volume).
 
 The memory image was captured **3 days after** the 2020-11-13 incident, so the break-in evidence
 exists only on disk. DeepSIFT's disk + browser analysis reconstructs it with zero hallucinations:
@@ -539,10 +590,28 @@ python3 demo.py \
   --ground-truth benchmark/ground_truth/rocba_ground_truth.json
 ```
 
-DeepSIFT has also been validated on the SANS FOR500 **"Abducted Zebrafish" (Vanko)** disk-only
-case (physical Surface 3 image), scoring **4/4 must-identify with 0 hallucinations and 100 %
-claim grounding** — uniquely recovering the classified zebrafish / cell-regeneration / DNA-splice
-subject matter via jump-list and shellbag analysis.
+### Abducted Zebrafish / Vanko — FOR500 (disk-only)
+
+A **disk-only** case (physical Microsoft Surface 3 image, no memory capture) — the scenario the
+prompt-only baseline handles least well, and a first-class autonomous run for DeepSIFT. DeepSIFT
+scored **4/4 must-identify, 0 hallucinations, 100 % claim grounding**, and was the only configuration
+to recover the classified research **subject matter** the baseline missed. Every claim below traces
+to an audited tool call:
+
+- **Access to classified StarkResearch directories (Level 5–8)** — shellbags (SbECmd, 252 entries)
+  record Explorer browsing of the `\\192.168.1.5\StarkResearch\Level 5–8 Classified` SMB share and
+  the locally-staged `Downloads\vacation photos\` cover-named copies.
+- **Classified subject matter (the criterion the baseline missed)** — jump lists / LNK recover
+  `zebrafish.pdf`, `ZF DNA splice test notes.docx`, and `Rapid cell regeneration research.docx`.
+- **Tooling & staging** — decoded UserAssist shows just-in-time `7-Zip` (2016-06-29 16:01) and
+  `VeraCrypt 1.17` (6 runs, last 2016-06-30 01:56), plus `StarkCollector.exe` and `sdelete.exe`.
+- **Exfiltration channels** — `parse_usb_history` enumerates 9 USB mass-storage devices (WD
+  My Passport, SanDisk Cruzer, Verbatim Store-N-Go, PNY, Innostor) and Chrome history shows an
+  `icloud.com` cloud-storage visit.
+
+This case is what motivated DeepSIFT's [Production Hardening](#production-hardening) below — the
+disk-artifact/registry path was hardened so analysis is correct and case-isolated on any acquired
+image.
 
 ### Production Hardening
 
@@ -580,7 +649,7 @@ case-isolated on any acquired image (no behaviour is specific to a particular ca
 - **Browser coverage** — all profiles of all installed browsers (Chrome/Edge/Brave + Firefox) are
   analysed, auto-discovered from the evidence mount.
 
-## Setup
+## Setup & Installation
 
 ### Prerequisites
 
@@ -592,8 +661,8 @@ case-isolated on any acquired image (no behaviour is specific to a particular ca
 ### Installation
 
 ```bash
-git clone https://github.com/your-username/deepsift
-cd deepsift
+git clone https://github.com/ahammadshawki8/DeepSIFT
+cd DeepSIFT
 
 # Install Python dependencies
 pip3 install -r requirements.txt
@@ -633,50 +702,54 @@ python3 mcp_server/server.py
 
 ---
 
-## Running an Investigation
+## Verify It Yourself (no API key)
 
-### Quick start (memory image only)
+Everything below runs offline with **no API key** — a judge can confirm DeepSIFT from
+first principles in a few minutes.
 
 ```bash
-python3 demo.py --image /cases/ROCBA/Rocba-Memory.raw
+# 1. What forensic tool groups are operational in this environment (honest, per-host)
+python3 preflight.py
+
+# 2. Test suite — parsers, guardrails, custody/HMAC, grounding, autonomy, evidence store
+pytest -q                                   # 74 passed, 1 skipped
+
+# 3. Re-verify a completed investigation independently: re-check every claim against the
+#    cited raw evidence and recompute the audit hash chain (trust the evidence, not the score)
+python3 verify_findings.py
+
+# 4. Open the human-review portal: verdict, hypothesis ledger, grounding, chain of custody
+python3 examiner_portal.py                  # → http://127.0.0.1:8420
 ```
 
-### Full investigation with comparison report
+**Reproduce the head-to-head benchmark** (deterministic; no LLM/API key required):
 
 ```bash
 python3 demo.py \
     --image /cases/ROCBA/Rocba-Memory.raw \
+    --evidence-mount /mnt/evidence \
     --baseline benchmark/baselines/protocol_sift_rocba_findings.json \
     --ground-truth benchmark/ground_truth/rocba_ground_truth.json
 ```
 
-### With pre-loaded case IOCs
-
-```bash
-# Seed ROCBA-specific threat intel into RAG
-python3 rag/ingest/run_all.py --load-rocba
-
-python3 demo.py --image /cases/ROCBA/Rocba-Memory.raw
-```
-
-### Ask Claude to investigate interactively
-
-Once the MCP server is running and connected:
+**Drive a live investigation as the agent** — connect Claude Code to the MCP server
+(`.mcp.json`) and ask, e.g.:
 
 ```
-Investigate /cases/ROCBA/Rocba-Memory.raw for signs of unauthorized access
-on or after November 13, 2020. Use DeepSIFT tools only.
+Investigate /mnt/evidence for unauthorized access and data exfiltration. Use DeepSIFT
+tools only: record hypotheses, confirm or disprove each with the right tool, then call
+finish_analysis citing every audit_id.
 ```
 
-Claude will follow the investigation workflow, call up to 10 tools, cross-correlate
-artifacts, challenge its own findings with adversarial review, and call `finish_analysis`
-with a structured report citing every audit_id.
+Claude Code follows the workflow, records its hypotheses and self-corrections, cross-correlates
+artifacts, challenges its own conclusions with `adversarial_review`, and calls `finish_analysis`
+with a grounded, structured report citing every `audit_id` — no external API key required.
 
 ---
 
-## Evidence Integrity
+## Evidence Integrity & Chain of Custody
 
-Every tool call generates an immutable audit record:
+Every tool call generates an immutable, hash-chained audit record:
 
 ```json
 {
@@ -685,31 +758,44 @@ Every tool call generates an immutable audit record:
   "tool": "get_process_list",
   "command": "python3 -m volatility3 -f /cases/ROCBA/Rocba-Memory.raw windows.pslist.PsList",
   "raw_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "raw_output_file": "exports/get_process_list_2026-06-11T14-23-07-412Z.txt"
+  "raw_output_file": "exports/get_process_list_2026-06-11T14-23-07-412Z.txt",
+  "prev_hash": "…",
+  "entry_hash": "…"
 }
 ```
 
-The `finish_analysis` tool requires an `audit_ids` list. Any finding not traceable to a
-prior tool call is structurally blocked — the tool returns an error and no report is written.
+- **Provenance-gated reporting** — `finish_analysis` requires an `audit_ids` list. Any finding not
+  traceable to a prior tool call is structurally blocked — the tool errors and no report is written.
+- **Tamper-evident chain** — each entry binds the previous entry's hash, so any modify/insert/delete
+  breaks the chain (`verify_audit_chain()`).
+- **Tamper-resistant (optional)** — set `DEEPSIFT_AUDIT_KEY` (held off the evidence host) to
+  additionally **HMAC-sign** the chain; an attacker who rewrites the whole log cannot forge valid
+  signatures without the key.
+- **Independently checkable** — `python3 verify_findings.py` recomputes both the grounding and the
+  chain integrity from the on-disk artifacts.
 
 ---
 
 ## RAG Knowledge Base
 
-The RAG pipeline (ChromaDB + sentence-transformers) is seeded from:
+The RAG pipeline (ChromaDB + sentence-transformers, with an offline hashing-embedder fallback)
+ships a **case-agnostic** corpus — only general forensic knowledge. One case's indicators are
+**never** baked in by default, so an investigation is never biased by an unrelated case.
 
-| Source | Documents | Coverage |
-|---|---|---|
-| MITRE ATT&CK Enterprise | ~650 techniques | Full technique descriptions, detection guidance, mitigations |
-| Threat intelligence IOCs | Case-specific | ROCBA hostile IPs, MRC.exe verdict, cloud exfil surface |
-| Case history | Investigation reports | Prior findings from related cases |
+| Source (default corpus) | Coverage |
+|---|---|
+| MITRE ATT&CK technique catalog | Technique IDs + names mapped by the parsers (kept in sync with `mitre_auto_map`) |
+| LOLBAS reference | Commonly abused signed Windows binaries and how attackers misuse them |
+| SANS Hunt Evil baseline | Known-normal Windows process baseline for anomaly detection |
 
-RAG context is injected into tool responses at call time — the LLM sees threat intelligence
-alongside the parsed artifact data, not as a separate lookup step.
+Per-case IOCs are **opt-in** and loaded only for that investigation
+(`python3 rag/ingest/run_all.py --case-ioc-json <findings.json>`; a bundled ROCBA example pack is
+available via `--load-rocba`). RAG context is injected into tool responses **at call time** — the
+model sees threat intelligence alongside the parsed artifact data, not as a separate lookup step.
 
 ---
 
-## Benchmark
+## Benchmarking
 
 ### Protocol SIFT vs DeepSIFT (ROCBA case)
 
@@ -888,10 +974,12 @@ These are not prompts — they are code:
    attempt under `/cases/`, `/mnt/`, or `/media/`. No prompt override possible.
 
 2. **No shell escape** — There is no `run_command` or `execute_shell` tool on the MCP
-   surface. The server exposes only the 148 typed tools listed above.
+   surface. The server exposes only the typed tools listed above; `guard_command` additionally
+   blocks destructive/exfiltration binaries and shell-string commands at every exec choke point.
 
-3. **Maximum 10 tool calls** — `audit.py` counter enforces this. At call 10, every tool
-   returns a `MAX_ITERATIONS reached` warning and `finish_analysis` must be called.
+3. **Bounded, evidence-driven budget** — `audit.py` counts every tool call; the agent runs until
+   the evidence is sufficient (configurable via `MAX_ITERATIONS`) and then calls `finish_analysis`.
+   The count is recorded in the report, so depth of analysis is transparent.
 
 4. **Provenance-gated reporting** — `finish_analysis` requires a non-empty `audit_ids`
    list. An empty list returns an error — fabricated findings structurally cannot be submitted.
@@ -927,8 +1015,13 @@ ABUSEIPDB_API_KEY=your_key_here
 VIRUSTOTAL_API_KEY=your_key_here
 
 # Investigation constraints
-MAX_TOOL_TIMEOUT=120
-MAX_ITERATIONS=10
+MAX_TOOL_TIMEOUT=300
+MAX_ITERATIONS=40
+
+# MCP transport (stdio default; sse / streamable-http expose an HTTP endpoint for any client)
+DEEPSIFT_MCP_TRANSPORT=stdio
+# Optional: HMAC-sign the chain of custody (held off the evidence host) for forgery resistance
+DEEPSIFT_AUDIT_KEY=
 ```
 
 ---
