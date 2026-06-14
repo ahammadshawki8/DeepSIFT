@@ -711,18 +711,22 @@ Everything below runs offline with **no API key** — a judge can confirm DeepSI
 first principles in a few minutes.
 
 ```bash
-# 1. What forensic tool groups are operational in this environment (honest, per-host)
-python3 preflight.py
+# 1. Works on a fresh clone immediately:
+python3 preflight.py        # which forensic tool groups are operational here (honest, per-host)
+pytest -q                   # full test suite → 74 passed, 1 skipped
 
-# 2. Test suite — parsers, guardrails, custody/HMAC, grounding, autonomy, evidence store
-pytest -q                                   # 74 passed, 1 skipped
+# 2. See a completed result instantly (committed sample — no run needed):
+#    open docs/sample/vanko_examiner_report.html  (or rocba_examiner_report.html) in a browser,
+#    or render the portal view of a sample:
+python3 examiner_portal.py --findings docs/sample/vanko_findings.json --html /tmp/review.html
+```
 
-# 3. Re-verify a completed investigation independently: re-check every claim against the
-#    cited raw evidence and recompute the audit hash chain (trust the evidence, not the score)
-python3 verify_findings.py
+After you run your own investigation (next section) the live results land in `analysis/`, and
+these confirm them independently:
 
-# 4. Open the human-review portal: verdict, hypothesis ledger, grounding, chain of custody
-python3 examiner_portal.py                  # → http://127.0.0.1:8420
+```bash
+python3 verify_findings.py     # re-checks every claim vs raw evidence + recomputes the hash chain
+python3 examiner_portal.py     # live review UI → http://127.0.0.1:8420
 ```
 
 **Reproduce the head-to-head benchmark** (deterministic; no LLM/API key required):
