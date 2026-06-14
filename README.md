@@ -519,9 +519,9 @@ A reviewer or judge can inspect a completed investigation in one command — **n
 (Python standard library only):
 
 ```bash
-python3 examiner_portal.py                       # serve  → http://127.0.0.1:8420
-python3 examiner_portal.py --cases-root /cases   # multi-case picker across many investigations
-python3 examiner_portal.py --html reports/examiner_review.html   # or a static file
+python3 examiner_portal.py                       # interactive live UI → http://127.0.0.1:8420
+python3 examiner_portal.py --cases-root /cases   # adds a multi-case picker across investigations
+python3 examiner_portal.py --html reports/examiner_review.html   # static read-only file (no server)
 ```
 
 The portal shows the **verdict + confidence**, the **autonomous-reasoning hypothesis ledger**

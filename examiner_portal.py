@@ -127,7 +127,8 @@ def _mitre_badges(techs) -> str:
 
 # ── HTML rendering ────────────────────────────────────────────────────────────────
 def render_html(findings: dict, audit_entries: list[dict], chain: dict,
-                case: str = "", signoff: dict | None = None) -> str:
+                case: str = "", signoff: dict | None = None,
+                multi_case: bool = False) -> str:
     summary = findings.get("summary") or findings.get("observation") or "(no summary)"
     interp = findings.get("interpretation", "")
     conf_q = findings.get("confidence_qualitative") or findings.get("confidence") or "—"
@@ -207,7 +208,7 @@ def render_html(findings: dict, audit_entries: list[dict], chain: dict,
     # Examiner sign-off: HMAC-signed approve/reject per finding (human-in-the-loop).
     signoff_section = ""
     nav = (f"<div class='muted' style='margin-bottom:10px'><a href='?'>← all cases</a></div>"
-           if case else "")
+           if (case and multi_case) else "")
     if signoff:
         cls = "ok" if signoff.get("ok") else "bad"
         signoff_section += (
@@ -428,11 +429,13 @@ command: <code>{html.escape(str(meta.get('command',''))[:300])}</code></p>
 
 
 # ── build / serve ─────────────────────────────────────────────────────────────────
-def build(findings_path: Path, audit_path: Path, case: str = "", signoff: dict | None = None) -> str:
+def build(findings_path: Path, audit_path: Path, case: str = "", signoff: dict | None = None,
+          multi_case: bool = False) -> str:
     findings = _load_json(Path(findings_path))
     audit_entries = _load_audit_entries(Path(audit_path))
     chain = _verify_chain(Path(audit_path))
-    return render_html(findings, audit_entries, chain, case=case, signoff=signoff)
+    return render_html(findings, audit_entries, chain, case=case, signoff=signoff,
+                       multi_case=multi_case)
 
 
 def do_signoff(case_dir: Path, form: dict) -> dict:
@@ -484,6 +487,10 @@ def main() -> int:
     default_findings = Path(args.findings) if args.findings else adir / "findings.json"
     default_audit = Path(args.audit) if args.audit else adir / "forensic_audit.log"
     cases_root = Path(args.cases_root) if args.cases_root else None
+    # When the user points at a standalone findings file (--findings/--audit), the portal
+    # is a read-only viewer of that sample. With the default analysis dir it's a live case,
+    # so we enable the interactive widgets (raw drill-down + examiner sign-off) by default.
+    override = bool(args.findings or args.audit)
 
     if args.html:
         out = Path(args.html)
@@ -496,8 +503,9 @@ def main() -> int:
     from urllib.parse import urlparse, parse_qs
 
     def _paths_for(case: str):
-        """Resolve (findings, audit) for a selected case dir, else the default."""
-        if case:
+        """Resolve (findings, audit) for a selected case dir, else the default.
+        The default analysis dir keeps any --findings/--audit overrides."""
+        if case and Path(case).resolve() != adir.resolve():
             cd = Path(case)
             return cd / "findings.json", cd / "forensic_audit.log"
         return default_findings, default_audit
@@ -519,11 +527,16 @@ def main() -> int:
             if cases_root and not case:
                 self._send(render_index(discover_cases(cases_root, adir)))
                 return
+            # Single-case mode: render the default analysis dir AS a selected case so the
+            # interactive widgets (raw drill-down + examiner sign-off) are on by default.
+            # A standalone --findings/--audit sample stays read-only.
+            if not case and not override:
+                case = str(adir)
             fpath, apath = _paths_for(case)
             if view == "raw":
                 self._send(render_raw_page(case, (q.get("audit") or [""])[0], apath))
                 return
-            self._send(build(fpath, apath, case=case))
+            self._send(build(fpath, apath, case=case, multi_case=bool(cases_root)))
 
         def do_POST(self):  # noqa: N802
             q = parse_qs(urlparse(self.path).query)
@@ -533,7 +546,8 @@ def main() -> int:
             case_dir = Path(case) if case else adir
             result = do_signoff(case_dir, form)
             fpath, apath = _paths_for(case)
-            self._send(build(fpath, apath, case=case, signoff=result))
+            self._send(build(fpath, apath, case=case, signoff=result,
+                             multi_case=bool(cases_root)))
 
         def log_message(self, *a):  # quiet
             pass
