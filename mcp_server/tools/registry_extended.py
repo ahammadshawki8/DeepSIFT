@@ -34,11 +34,20 @@ def _run_ez(tool: str, args: list[str]) -> tuple[str, str]:
     """
     import os
     name = tool[:-4] if tool.lower().endswith(".exe") else tool
+    # RECmd/SBECmd abort on dirty hives lacking matching .LOG1/.LOG2 transaction logs.
+    # Live-acquired hives are routinely dirty (they ship TxR .blf logs instead), so
+    # without --nl these tools silently return 0 rows. --nl parses the hive as-is.
+    if name.lower() in ("recmd", "sbecmd") and "--nl" not in args:
+        args = args + ["--nl"]
     exe = _EZ / f"{name}.exe"
     if os.name == "nt" and exe.exists():
         cmd = [str(exe)] + args
     else:
-        hits = list(_EZ.glob(f"**/{name}.dll"))
+        # Case-insensitive .dll match: SbECmd ships as SBECmd.dll, and Linux globs
+        # are case-sensitive, so a literal "**/SbECmd.dll" glob silently misses it
+        # and the tool reports "not found" → 0 results.
+        want = f"{name}.dll".lower()
+        hits = [p for p in _EZ.glob("**/*.dll") if p.name.lower() == want]
         if hits:
             cmd = ["dotnet", str(hits[0])] + args
         elif exe.exists():
@@ -103,20 +112,33 @@ def register_registry_extended_tools(mcp, rag=None):
         if not ntuser_path or not Path(ntuser_path).exists():
             return json.dumps({"error": f"NTUSER.DAT not found: {ntuser_path}"})
 
-        out_dir = str(EXPORTS_DIR)
-        args = ["-d", str(Path(ntuser_path).parent), "--csv", out_dir, "--csvf", "shellbags.csv", "-q"]
-        if usrclass_path and Path(usrclass_path).exists():
-            args = ["-d", str(Path(ntuser_path).parent), "--csv", out_dir, "--csvf", "shellbags.csv", "-q"]
+        # SbECmd in -d (directory) mode names each output CSV after the hive it came
+        # from (UsrClass.csv, NTUSER.csv …) and IGNORES --csvf, so a reader keyed to a
+        # single fixed "shellbags.csv" finds nothing. Use a dedicated, freshly-cleared
+        # dir (cross-case hygiene) and read EVERY CSV it produces. -d recurses, so the
+        # profile root catches both NTUSER.DAT and the deeper UsrClass.dat (where the
+        # bulk of Win10 shellbags live).
+        out_dir = EXPORTS_DIR / "shellbags"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for _old in out_dir.glob("*.csv"):
+            try:
+                _old.unlink()
+            except OSError:
+                pass
+        # Scan the whole profile root so a single pass picks up NTUSER + UsrClass.
+        # NOTE: SbECmd does NOT accept -q (it errors "Unrecognized argument" and writes
+        # nothing) — unlike RECmd/most EZ tools. Keep its arg set minimal.
+        profile_root = str(Path(ntuser_path).parent)
+        args = ["-d", profile_root, "--csv", str(out_dir)]
 
         stdout, stderr = _run_ez("SbECmd.exe", args)
         log_tool_execution("parse_shellbags", ["SbECmd.exe"] + args, stdout, error=stderr)
         audit_id = get_last_audit_id()
 
-        # Parse output CSV
-        csv_file = EXPORTS_DIR / "shellbags.csv"
+        # Parse every CSV SbECmd wrote (one per hive).
         entries: list[dict] = []
-        if csv_file.exists():
-            entries = _parse_csv_output(csv_file.read_text(encoding="utf-8-sig", errors="replace"))
+        for csv_file in sorted(out_dir.glob("*.csv")):
+            entries.extend(_parse_csv_output(csv_file.read_text(encoding="utf-8-sig", errors="replace")))
 
         # Flag interesting paths
         suspicious_paths = [

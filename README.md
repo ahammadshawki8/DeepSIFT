@@ -9,9 +9,15 @@ forensic discipline (caveats, advisories, corroboration hints), enriches finding
 MITRE ATT&CK tags and RAG-backed threat intelligence, and enforces chain-of-custody audit
 logging before the LLM ever sees a single byte of evidence.
 
-**148 typed MCP tools · 23 tool modules · 15 parser modules · Per-tool RAG enrichment · Post-hoc grounding verification · 4-axis quantified confidence scoring · 3,700+ Sigma rules via Hayabusa · 6-type contradiction detection · vigia-cases benchmark runner**
+**148 typed MCP tools · 23 tool modules · 15 parser modules · Per-tool RAG enrichment · Post-hoc grounding verification · 4-axis quantified confidence scoring · 3,700+ Sigma rules via Hayabusa · 6-type contradiction detection · case-agnostic benchmark runner**
 
-> **Hackathon:** [Find Evil! — SANS DFIR](https://findevil.devpost.com/) · Deadline: June 15, 2026
+> **Status:** Production-ready. Every tool executes a real forensic binary or parser —
+> no simulated, demo-only, or placeholder analysis paths. All evidence paths are supplied
+> per invocation (nothing is hard-coded to a specific image), each EZ Tools run clears its
+> own output directory to prevent cross-case contamination, dirty registry hives are parsed
+> as-acquired, and the RAG knowledge base ships case-agnostic (case IOCs are opt-in, never
+> auto-loaded). Originally built for the [Find Evil! — SANS DFIR](https://findevil.devpost.com/)
+> challenge.
 
 ---
 
@@ -49,7 +55,7 @@ flowchart TD
     F -->|"enriched JSON"| B
 
     B --> G["RAG Pipeline\nChromaDB + sentence-transformers"]
-    G --> H["Knowledge Sources\nMITRE ATT&CK · Threat Intel\nROCBA IOCs · Case History"]
+    G --> H["Knowledge Sources (case-agnostic)\nMITRE ATT&CK · LOLBAS · Hunt Evil baseline\n+ opt-in per-case IOCs / threat intel"]
     H --> G
 
     B --> I["Audit Logger\naudit_id · SHA-256 · forensic_audit.log"]
@@ -464,6 +470,32 @@ python3 demo.py \
   --ground-truth benchmark/ground_truth/rocba_ground_truth.json
 ```
 
+DeepSIFT has also been validated on the SANS FOR500 **"Abducted Zebrafish" (Vanko)** disk-only
+case (physical Surface 3 image), scoring **4/4 must-identify with 0 hallucinations and 100 %
+claim grounding** — uniquely recovering the classified zebrafish / cell-regeneration / DNA-splice
+subject matter via jump-list and shellbag analysis.
+
+### Production Hardening
+
+The EZ Tools / registry path was hardened so disk-artifact analysis is correct and
+case-isolated on any acquired image (no behaviour is specific to a particular case):
+
+- **Cross-case isolation** — every EZ Tools run clears its own CSV output directory first, so a
+  prior case's output (e.g. another user profile's LNK history) can never be re-read as the
+  current case's evidence.
+- **Dirty-hive parsing** — RECmd/SbECmd are invoked with `--nl` so live-acquired registry hives
+  (which ship TxR `.blf` logs, not the `.LOG1/.LOG2` files those tools replay) are parsed
+  as-acquired instead of aborting and silently returning zero rows.
+- **Offline-hive keys** — registry lookups resolve `ControlSet001` (acquired hives have no
+  `CurrentControlSet` symlink), and single-key (`--kn`) dumps that write to stdout rather than
+  CSV are still parsed into structured entries.
+- **Correct artifact decoding** — UserAssist entries are read from the decoded program-path /
+  run-count / last-executed columns (not the raw ROT13 value name); SbECmd output (named per
+  hive) is read by scanning all CSVs it produces.
+- **Case-agnostic knowledge base** — the offline RAG corpus contains only general forensic
+  knowledge (MITRE catalog, LOLBAS, Hunt Evil baseline). Per-case IOCs are opt-in
+  (`--case-ioc-json` / `--load-rocba`) so one case never biases another.
+
 ### Running on SIFT Workstation (Linux) — notes
 
 - **EZ Tools** are invoked as .NET assemblies (`dotnet /opt/zimmermantools/<Tool>.dll`, subdir-aware),
@@ -697,19 +729,23 @@ DeepSIFT/
 │   ├── knowledge_base.py            ← ChromaDB vector store
 │   ├── query.py                     ← Semantic search interface
 │   └── ingest/
+│       ├── knowledge_corpus.py      ← Case-agnostic offline corpus (MITRE catalog + LOLBAS + Hunt Evil)
 │       ├── mitre_attack.py          ← MITRE ATT&CK Enterprise ingestion
-│       ├── case_history.py          ← Case-specific findings ingestion
-│       ├── rocba_iocs.py            ← ROCBA case IOC seeding (hostile IPs, MRC.exe, cloud exfil)
+│       ├── case_history.py          ← Per-case findings ingestion (opt-in, per investigation)
+│       ├── rocba_iocs.py            ← Example case-IOC pack (opt-in via --load-rocba; not auto-loaded)
 │       └── run_all.py               ← One-command RAG initialization
 ├── agents/
-│   └── orchestrator.py              ← LangGraph multi-agent coordination
+│   ├── orchestrator.py              ← LangGraph multi-agent coordination (deterministic pipeline)
+│   └── reasoning_agent.py           ← Agentic LLM reasoning loop over the typed tools
 ├── benchmark/
 │   ├── runner.py                    ← Benchmark execution (Protocol SIFT vs DeepSIFT)
-│   ├── scorer.py                    ← Precision/recall/F1 vs ground truth
+│   ├── scorer.py                    ← must-identify / hallucination scoring vs ground truth
+│   ├── compare.py                   ← Case-agnostic side-by-side comparison + HTML report
 │   ├── vigia_runner.py              ← vigia-cases standardized multi-case benchmark
+│   ├── ground_truth/                ← Per-case ground-truth scoring files
 │   ├── baselines/                   ← Protocol SIFT reference findings
 │   └── reports/html_report.py       ← Visual HTML comparison report
-├── tests/                           ← pytest unit tests (32 passing)
+├── tests/                           ← pytest unit tests (61 passing)
 ├── yara_rules/
 │   ├── suspicious_strings.yar       ← T1059.001, T1003, T1218, T1547.001
 │   ├── webshells.yar                ← T1505.003
@@ -821,17 +857,18 @@ MAX_ITERATIONS=10
 ## Development
 
 ```bash
-# Run tests (32 expected)
+# Run tests (61 passing, 1 skipped)
 pytest tests/ -v
 
 # Syntax check
 python -m py_compile mcp_server/tools/*.py mcp_server/parsers/*.py
 
-# Seed RAG knowledge base
+# Seed the case-agnostic RAG knowledge base (MITRE + LOLBAS + Hunt Evil baseline)
 python3 rag/ingest/run_all.py
 
-# Seed with ROCBA case IOCs
-python3 rag/ingest/run_all.py --load-rocba
+# Optionally load a case's own IOCs for that investigation (per case, opt-in)
+python3 rag/ingest/run_all.py --case-ioc-json analysis/findings.json
+# (the bundled ROCBA example pack: --load-rocba)
 ```
 
 ---

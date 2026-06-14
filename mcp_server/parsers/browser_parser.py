@@ -9,8 +9,9 @@ import re
 
 # Cloud storage / exfiltration surface domains
 _CLOUD_EXFIL_DOMAINS = re.compile(
-    r"(dropbox\.com|onedrive\.live\.com|drive\.google\.com|icloud\.com"
-    r"|box\.com|mega\.nz|wetransfer\.com|sendspace\.com|paste\.ee"
+    r"(dropbox\.com|onedrive\.live\.com|drive\.google\.com|docs\.google\.com"
+    r"|icloud\.com|box\.com|mega\.nz|wetransfer\.com|sendspace\.com|paste\.ee"
+    r"|sharepoint\.com|my\.sharepoint\.com|1drv\.ms|sharefile\.com"
     r"|pastebin\.com|filebin\.net|gofile\.io|upload\.ee)",
     re.IGNORECASE,
 )

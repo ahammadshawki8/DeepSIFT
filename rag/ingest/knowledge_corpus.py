@@ -7,10 +7,16 @@ All sources here are bundled / derived in-repo — no network required:
     exactly what the parsers tag — no fabrication.
   * A curated LOLBAS (Living-Off-the-Land Binaries) reference of commonly abused
     Windows binaries and how attackers misuse them.
-  * The SANS Hunt Evil known-normal process baseline and the ROCBA case IOCs.
+  * The SANS Hunt Evil known-normal process baseline.
 
 This gives the offline knowledge base real, accurate breadth (hundreds of grounded
 entries) without depending on a 22k-record external download.
+
+The base corpus is deliberately CASE-AGNOSTIC — it contains only general forensic
+knowledge (MITRE catalog, LOLBAS, known-normal baseline). Case-specific indicators
+must be loaded explicitly per investigation (demo.py --case-ioc-json /
+rag.ingest.case_history.ingest_findings_json) so that one case's IOCs never bias
+another case's analysis.
 """
 from __future__ import annotations
 import logging
@@ -95,21 +101,18 @@ def ingest_lolbas(kb) -> int:
 
 
 def ingest_all_offline(kb) -> int:
-    """Seed every offline source. Returns total documents in the KB afterwards."""
+    """Seed the case-agnostic offline corpus (Hunt Evil baseline + MITRE catalog +
+    LOLBAS). Returns total documents in the KB afterwards.
+
+    NOTE: this intentionally does NOT load any single case's indicators. Per-case
+    IOCs are opt-in (see rag.ingest.case_history.ingest_findings_json) to keep one
+    investigation's evidence from contaminating another's RAG context.
+    """
     total = 0
     try:
         total += kb.ingest_hunt_evil_baseline()
     except Exception as e:
         logger.warning(f"hunt-evil ingest failed: {e}")
-    try:
-        from rag.ingest.rocba_iocs import ROCBA_IOCS
-        for ioc in ROCBA_IOCS:
-            kb.ingest_document(doc_id=ioc["id"], content=ioc["content"],
-                               source=ioc.get("source", "rocba_case_history"),
-                               metadata=ioc.get("metadata"))
-        total += len(ROCBA_IOCS)
-    except Exception as e:
-        logger.warning(f"ROCBA IOC ingest failed: {e}")
     total += ingest_mitre_catalog(kb)
     total += ingest_lolbas(kb)
     return kb.get_stats().get("total_documents", total)

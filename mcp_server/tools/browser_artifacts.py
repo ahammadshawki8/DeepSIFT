@@ -41,8 +41,9 @@ _SUSPICIOUS_DOMAINS = re.compile(
 )
 
 _CLOUD_EXFIL_DOMAINS = re.compile(
-    r"\b(?:dropbox|onedrive|drive\.google|icloud|box\.com|mega\.nz"
-    r"|wetransfer|sendspace|mediafire|4shared)\b",
+    r"\b(?:dropbox|onedrive|drive\.google|docs\.google|icloud|box\.com|mega\.nz"
+    r"|wetransfer|sendspace|mediafire|4shared|sharepoint|my\.sharepoint"
+    r"|1drv\.ms|sharefile|citrixdata)\b",
     re.IGNORECASE,
 )
 
@@ -93,87 +94,169 @@ def _query_sqlite(db_path: str, query: str, params: tuple = ()) -> list[dict]:
         return [{"error": str(e)}]
 
 
+# Glob patterns (relative to a given root) that locate every Chromium profile's
+# History DB for Chrome, Edge, and Brave. Lets one call cover the whole browser surface.
+_CHROMIUM_HISTORY_GLOBS = (
+    "AppData/Local/Google/Chrome/User Data/*/History",
+    "AppData/Local/Microsoft/Edge/User Data/*/History",
+    "AppData/Local/BraveSoftware/Brave-Browser/User Data/*/History",
+    "Google/Chrome/User Data/*/History",
+    "Microsoft/Edge/User Data/*/History",
+    "BraveSoftware/Brave-Browser/User Data/*/History",
+    "User Data/*/History",
+    "*/History",
+)
+
+
+def _discover_chromium_history(path: str) -> list[Path]:
+    """Return every Chromium (Chrome/Edge/Brave) History DB under `path`.
+
+    Accepts a direct History file, a single profile dir, a 'User Data' dir, or a
+    user/evidence root — and finds all profiles below it. De-duplicated, sorted.
+    """
+    p = Path(path)
+    if p.is_file():
+        return [p]
+    found: list[Path] = []
+    seen: set[str] = set()
+    if p.is_dir():
+        # Single profile dir passed directly (…/Default).
+        direct = p / "History"
+        if direct.is_file():
+            found.append(direct)
+            seen.add(str(direct.resolve()))
+        for pattern in _CHROMIUM_HISTORY_GLOBS:
+            for db in p.glob(pattern):
+                rp = str(db.resolve())
+                if db.is_file() and rp not in seen:
+                    seen.add(rp)
+                    found.append(db)
+    return sorted(found, key=str)
+
+
+def _profile_label(db: Path) -> str:
+    """Readable '<user>/<browser>/<profile>' label for a History DB path."""
+    parts = db.parts
+    low = [s.lower() for s in parts]
+    user = ""
+    if "users" in low:
+        i = low.index("users")
+        if i + 1 < len(parts):
+            user = parts[i + 1]
+    if "chrome" in low:
+        browser = "Chrome"
+    elif "edge" in low:
+        browser = "Edge"
+    elif "brave-browser" in low:
+        browser = "Brave"
+    else:
+        browser = "Chromium"
+    profile = db.parent.name  # Default, Profile 1, …
+    return "/".join(x for x in (user, browser, profile) if x)
+
+
 def register_browser_artifact_tools(mcp, rag=None):
 
     @mcp.tool()
     def parse_chrome_history(profile_path: str, limit: int = 500) -> str:
         """
-        Parse Google Chrome or Microsoft Edge browsing history and downloads.
+        Parse Chromium (Chrome AND Edge) browsing history and downloads across ALL profiles.
 
-        Works on: Chrome Default profile, Edge Default profile — any Chromium-based browser.
-        Expected path: /mnt/evidence/Users/<user>/AppData/Local/Google/Chrome/User Data/Default/
+        Auto-discovers every profile under the path you give, so a single call covers
+        the whole browser surface — Default, Profile 1/2/N, and both Chrome and Edge.
+        Pass the broadest path you have:
+          * a user root          → /mnt/evidence/Users/<user>      (covers Chrome + Edge, all profiles)
+          * a 'User Data' dir     → .../Chrome/User Data            (all profiles of that browser)
+          * a single profile dir  → .../User Data/Default           (just that profile)
+          * a direct History file → .../Default/History
 
-        Returns: top visited URLs, download records, suspicious domain flags,
-        cloud exfiltration indicators, and search queries.
+        Incident-window activity lives in non-default profiles more often than not, so
+        prefer the user root. Returns merged visits/downloads (each tagged with its
+        source profile), suspicious-domain + cloud-exfil flags (incl. SharePoint), and
+        the most recent activity first.
 
         Args:
-            profile_path: Path to the Chrome/Edge 'Default' profile directory
-                          OR direct path to the 'History' SQLite file.
-            limit:        Maximum number of history entries to return (default 500).
+            profile_path: User root, User Data dir, profile dir, or History file.
+            limit:        Max history entries per profile (default 500).
         """
         increment_tool_counter()
-        profile = Path(profile_path)
-        history_db = profile if profile.suffix == "" and profile.name != "Default" else profile / "History"
-        if not history_db.exists():
-            history_db = profile  # may be direct path to db
-        if not history_db.exists():
-            return json.dumps({"error": f"History database not found at {profile_path}"})
+        history_dbs = _discover_chromium_history(profile_path)
+        if not history_dbs:
+            return json.dumps({"error": f"No Chromium History database found under {profile_path}"})
 
-        log_tool_execution("parse_chrome_history", [str(history_db)], "SQLite parse")
+        visits: list[dict] = []
+        suspicious_visits: list[dict] = []
+        cloud_exfil_visits: list[dict] = []
+        downloads: list[dict] = []
+        raw_all: dict[str, dict] = {}      # per-profile raw rows for the audit record
+        profiles_covered: list[dict] = []
+
+        for db in history_dbs:
+            label = _profile_label(db)
+            rows = _query_sqlite(
+                str(db),
+                "SELECT url, title, visit_count, last_visit_time, typed_count "
+                "FROM urls ORDER BY last_visit_time DESC LIMIT ?",
+                (limit,),
+            )
+            dl_rows = _query_sqlite(
+                str(db),
+                "SELECT target_path, tab_url, total_bytes, start_time, state "
+                "FROM downloads ORDER BY start_time DESC LIMIT 200",
+            )
+            raw_all[label] = {"urls": rows, "downloads": dl_rows}
+            n_v = 0
+            for r in rows:
+                if "error" in r:
+                    break
+                flags = _flag_url(r.get("url", ""))
+                entry = {
+                    "profile": label,
+                    "url": r.get("url", ""),
+                    "title": r.get("title", ""),
+                    "visit_count": r.get("visit_count", 0),
+                    "last_visit": _chrome_ts(r.get("last_visit_time")),
+                    "typed_count": r.get("typed_count", 0),
+                    "flags": flags,
+                }
+                visits.append(entry)
+                n_v += 1
+                if "SUSPICIOUS_DOMAIN" in flags:
+                    suspicious_visits.append(entry)
+                if "CLOUD_EXFIL_DOMAIN" in flags:
+                    cloud_exfil_visits.append(entry)
+            n_d = 0
+            for r in dl_rows:
+                if "error" in r:
+                    break
+                downloads.append({
+                    "profile": label,
+                    "target_path": r.get("target_path", ""),
+                    "source_url": r.get("tab_url", ""),
+                    "size_bytes": r.get("total_bytes", 0),
+                    "start_time": _chrome_ts(r.get("start_time")),
+                    "state": r.get("state"),
+                    "flags": _flag_url(r.get("tab_url", "")),
+                })
+                n_d += 1
+            profiles_covered.append({"profile": label, "history_db": str(db),
+                                     "visits": n_v, "downloads": n_d})
+
+        # Most recent first across all profiles, so incident-window activity surfaces.
+        visits.sort(key=lambda v: v.get("last_visit", ""), reverse=True)
+        downloads.sort(key=lambda d: d.get("start_time", ""), reverse=True)
+
+        # Chain-of-custody: audit the actual rows from EVERY profile parsed, so grounding
+        # can verify any cited URL/download and the SHA-256 binds all analysed data.
+        evidence_text = json.dumps(raw_all, ensure_ascii=False, default=str)
+        log_tool_execution("parse_chrome_history",
+                           [str(d) for d in history_dbs], evidence_text)
         audit_id = get_last_audit_id()
 
-        # Browsing history
-        rows = _query_sqlite(
-            str(history_db),
-            "SELECT url, title, visit_count, last_visit_time, typed_count "
-            "FROM urls ORDER BY last_visit_time DESC LIMIT ?",
-            (limit,),
-        )
-        visits = []
-        suspicious_visits = []
-        cloud_exfil_visits = []
-        for r in rows:
-            if "error" in r:
-                break
-            flags = _flag_url(r.get("url", ""))
-            entry = {
-                "url": r.get("url", ""),
-                "title": r.get("title", ""),
-                "visit_count": r.get("visit_count", 0),
-                "last_visit": _chrome_ts(r.get("last_visit_time")),
-                "typed_count": r.get("typed_count", 0),
-                "flags": flags,
-            }
-            visits.append(entry)
-            if "SUSPICIOUS_DOMAIN" in flags:
-                suspicious_visits.append(entry)
-            if "CLOUD_EXFIL_DOMAIN" in flags:
-                cloud_exfil_visits.append(entry)
-
-        # Downloads
-        dl_rows = _query_sqlite(
-            str(history_db),
-            "SELECT target_path, tab_url, total_bytes, start_time, state "
-            "FROM downloads ORDER BY start_time DESC LIMIT 200",
-        )
-        downloads = [
-            {
-                "target_path": r.get("target_path", ""),
-                "source_url": r.get("tab_url", ""),
-                "size_bytes": r.get("total_bytes", 0),
-                "start_time": _chrome_ts(r.get("start_time")),
-                "state": r.get("state"),
-                "flags": _flag_url(r.get("tab_url", "")),
-            }
-            for r in dl_rows if "error" not in r
-        ]
-
-        # Middleware parser: classify with browser_parser + add MITRE tags
         _, mp_suspicious = classify_chrome_rows(visits)
         _, mp_dl_suspicious = classify_downloads(downloads)
         browser_summary = build_browser_summary(visits, mp_suspicious)
 
-        # RAG enrichment on each suspicious visit
         enrich_findings(
             rag, suspicious_visits + cloud_exfil_visits,
             lambda v: f"browser visit exfiltration cloud storage {v.get('url', '')} {v.get('flags', [])}",
@@ -181,13 +264,15 @@ def register_browser_artifact_tools(mcp, rag=None):
 
         data = {
             "profile_path": str(profile_path),
+            "profiles_covered": profiles_covered,
+            "profile_count": len(profiles_covered),
             "total_history_entries": len(visits),
             "suspicious_visits": suspicious_visits[:50],
             "cloud_exfil_visits": cloud_exfil_visits[:50],
             "parser_summary": browser_summary,
             "suspicious_downloads": mp_dl_suspicious[:50],
-            "recent_history": visits[:100],
-            "downloads": downloads[:100],
+            "recent_history": visits[:120],
+            "downloads": downloads[:120],
             "rag_context": build_rag_summary(rag, "browser forensics cloud exfiltration evidence"),
             "tool_calls_used": get_tool_count(),
         }
@@ -212,9 +297,6 @@ def register_browser_artifact_tools(mcp, rag=None):
         if not places_db.exists():
             return json.dumps({"error": f"places.sqlite not found at {profile_path}"})
 
-        log_tool_execution("parse_firefox_history", [str(places_db)], "SQLite parse")
-        audit_id = get_last_audit_id()
-
         rows = _query_sqlite(
             str(places_db),
             "SELECT p.url, p.title, p.visit_count, p.last_visit_date, "
@@ -222,6 +304,13 @@ def register_browser_artifact_tools(mcp, rag=None):
             "FROM moz_places p ORDER BY p.last_visit_date DESC LIMIT ?",
             (limit,),
         )
+        # Chain-of-custody: audit the actual rows returned (real URLs), so grounding
+        # can verify claims against evidence and the SHA-256 binds the analysed data.
+        log_tool_execution(
+            "parse_firefox_history", [str(places_db)],
+            json.dumps({"urls": rows}, ensure_ascii=False, default=str),
+        )
+        audit_id = get_last_audit_id()
         visits = []
         suspicious = []
         cloud_exfil = []

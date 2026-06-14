@@ -1,0 +1,132 @@
+{
+ "case_id": "VANKO-2016",
+ "case_name": "The Case of the Abducted Zebrafish (FOR500)",
+ "incident_window": "2016-06-22 .. 2016-06-30",
+ "system": "Microsoft Surface 3 — Windows 10 Professional",
+ "subject": "Anthony Vanko (vanko), Biochemical Engineer, Stark Enterprises DC R&D",
+ "evidence": {
+  "physical_disk_image": "surface_physical.E01 (EnCase, 21 segments — full physical Surface 3 disk)",
+  "triage_collection": "vanko-c-drive.CYLR.7z (CyLR live-response artifact set)",
+  "memory_image": "none (disk-only case — no Volatility step)"
+ },
+ "known_facts": {
+  "classified_docs_posted_to_chinese_server": "2016-06-22 to 2016-06-23",
+  "bulk_copy_from_starkresearch_detected": "2016-06-30",
+  "source_directories": [
+   "\\StarkResearch\\Level 5 Classified\\",
+   "\\StarkResearch\\Level 6 Classified\\",
+   "\\StarkResearch\\Level 7 Classified\\",
+   "\\StarkResearch\\Level 8 Classified\\"
+  ],
+  "research_topics": [
+   "rapid cell regeneration",
+   "cell regrowth calculations",
+   "zebrafish (ZF) DNA splice"
+  ],
+  "known_comms": ["email", "Skype", "WhatsApp"],
+  "known_networks": ["StarkLabs", "StarkSat"],
+  "devices": ["Surface 3 (Win10 Pro)", "iPhone 5c (possibly synced to laptop)"]
+ },
+ "investigative_questions": [
+  "Was Vanko involved with dissemination of classified information?",
+  "Validate whether Vanko copied a large volume from the StarkResearch server.",
+  "What was done with the data (exfiltration channel)?"
+ ],
+ "scoring_criteria": {
+  "must_identify": [
+   {
+    "name": "Access to classified StarkResearch server directories (Level 5-8 Classified)",
+    "groups": [
+     [
+      "\\starkresearch\\",
+      "starkresearch",
+      "level 5 classified",
+      "level 6 classified",
+      "level 7 classified",
+      "level 8 classified",
+      "re:level\\s*[5-8]\\s*classified"
+     ]
+    ]
+   },
+   {
+    "name": "Classified research subject matter accessed (zebrafish / cell regeneration / DNA splice)",
+    "groups": [
+     [
+      "zebrafish",
+      "zf dna",
+      "cell regrowth",
+      "cell regeneration",
+      "rapid cell",
+      "dna splice",
+      "re:\\bsplice",
+      "re:regenerat(e|ion|ive)"
+     ]
+    ]
+   },
+   {
+    "name": "Exfiltration channel evidence (removable media / cloud / comms upload)",
+    "groups": [
+     [
+      "usbstor",
+      "usb device",
+      "removable",
+      "mass storage",
+      "re:\\b[d-z]:\\\\",
+      "dropbox",
+      "drive.google.com",
+      "onedrive",
+      "skype",
+      "whatsapp",
+      "re:\\.(zip|7z|rar)\\b",
+      "robocopy",
+      "xcopy",
+      "re:copied?.{0,30}\\bto\\b"
+     ]
+    ]
+   },
+   {
+    "name": "Activity within the incident window (June 2016) tied to a file/transfer/URL artifact",
+    "groups": [
+     [
+      "2016-06-22",
+      "2016-06-23",
+      "2016-06-30",
+      "re:2016-06-(2[0-9]|30)",
+      "re:06/(2[0-9]|30)/2016",
+      "re:jun(e)?\\s*(2[0-9]|30),?\\s*2016"
+     ],
+     [
+      "starkresearch",
+      "usbstor",
+      "copied",
+      "transfer",
+      "exfil",
+      "upload",
+      ".lnk",
+      "http://",
+      "https://",
+      "re:\\.(zip|7z|rar|docx?|xlsx?|pdf)\\b"
+     ]
+    ],
+    "co_occur": true
+   }
+  ],
+  "bonus_identify": [
+   "Specific exfiltrated file names / classified document titles",
+   "USB device make / model / serial number used for exfiltration",
+   "Upload to the Chinese university file share (.cn domain / external host)",
+   "Communications (Skype / WhatsApp / email) referencing the data or recipient",
+   "Anti-forensics (timestomping, secure deletion, log/USN clearing)",
+   "Timeline reconstruction across multiple disk artifacts"
+  ],
+  "should_not_hallucinate": [
+   "Specific stolen file names without supporting artifact evidence",
+   "USB serial numbers or device IDs not present in registry/setupapi",
+   "Network connections or IPs not observed in disk artifacts",
+   "Exfiltration dates not grounded in artifact timestamps",
+   "Attacker/recipient identity beyond what the evidence shows"
+  ],
+  "_scoring_note": "Scenario-DERIVED ground truth (built from the FOR500 brief's explicit facts: the \\StarkResearch\\Level 5-8 Classified\\ paths, the June 22-30 2016 window, the zebrafish/cell-regeneration topics, and the three investigative questions). It is NOT an official answer key — no definitive artifact list (USB serials, exact filenames, confirmed exfil channel) was available on the box at authoring time. must_identify uses CONTENT-based indicator groups: a criterion is satisfied only when each group has >=1 hit in the findings TEXT VALUES (prose alone may satisfy where the brief states the fact). Indicators prefixed 're:' are case-insensitive REGEX. Tighten these once the first run reveals the actual extracted artifacts. Identical scoring for both Protocol SIFT and DeepSIFT.",
+  "_window_note": "Incident window: classified docs posted to Chinese server 2016-06-22/23; bulk copy from StarkResearch detected 2016-06-30."
+ }
+}

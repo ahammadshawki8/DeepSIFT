@@ -236,9 +236,9 @@ def register_threat_intel_extended_tools(mcp, rag=None):
         """
         Search the DeepSIFT RAG IOC database for known threat indicators.
 
-        The IOC database is seeded from: MITRE ATT&CK, case-specific IOCs
-        (ROCBA hostile IPs, MRC.exe, cloud exfiltration domains), and any
-        custom threat intel ingested via rag/ingest/.
+        The IOC database is seeded from: MITRE ATT&CK, the LOLBAS reference,
+        the Hunt Evil known-normal baseline, and any case-specific IOCs or
+        custom threat intel ingested via rag/ingest/ (opt-in, per case).
 
         Args:
             query:    IOC value or keyword to search for (IP, domain, hash, filename).

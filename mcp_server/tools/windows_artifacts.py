@@ -32,6 +32,26 @@ def _is_suspicious_path(path: str) -> bool:
     )
 
 
+def _fresh_outdir(name: str) -> str:
+    """Return this tool's CSV output dir under EXPORTS_DIR, emptied of CSVs left by
+    previous runs.
+
+    EZ Tools write a timestamped CSV here and the caller then reads back *every*
+    CSV in the dir. Without clearing, a later run — or a DIFFERENT CASE — re-reads
+    stale rows (e.g. a prior case's LNK output under the 'fredr' profile) and
+    reports them as the current case's findings: cross-case evidence contamination.
+    Clearing guarantees each parse reflects only the evidence it was just given.
+    """
+    d = EXPORTS_DIR / name
+    d.mkdir(parents=True, exist_ok=True)
+    for old in d.glob("*.csv"):
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    return str(d)
+
+
 def _categorize_events(events: list[dict]) -> dict:
     cats: dict[str, list] = {
         "failed_logons": [],
@@ -64,15 +84,112 @@ def _categorize_events(events: list[dict]) -> dict:
     return {k: v[:20] for k, v in cats.items()}
 
 
-def _run(cmd: list[str], tool_name: str) -> tuple[str, str]:
+# Cap on how many bytes of CSV evidence we fold into the audited raw output.
+# Large enough to hold the actual artifact rows (so grounding can verify claims
+# against real evidence), bounded so the audit log stays manageable.
+_MAX_AUDIT_EVIDENCE_BYTES = 8 * 1024 * 1024
+
+
+def _collect_evidence_text(data_dir: str | None) -> str:
+    """Concatenate the CSV evidence an EZ tool just wrote, for the audit record.
+
+    EZ Tools print only a banner/status to stdout and write the actual rows to a
+    CSV file. Chain-of-custody and grounding both depend on the *data* — not the
+    banner — so we fold the CSV bytes into the audited raw_output. Bounded by
+    _MAX_AUDIT_EVIDENCE_BYTES.
+    """
+    if not data_dir:
+        return ""
+    p = Path(data_dir)
+    if not p.exists():
+        return ""
+    parts: list[str] = []
+    budget = _MAX_AUDIT_EVIDENCE_BYTES
+    for csv_file in sorted(p.glob("*.csv")):
+        if budget <= 0:
+            parts.append("[evidence truncated for audit record]")
+            break
+        try:
+            text = csv_file.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            continue
+        if len(text) > budget:
+            # Truncate within a single large CSV so the audit record stays bounded
+            # while still carrying the column header + a large body of real rows.
+            text = text[:budget] + "\n[evidence truncated for audit record]"
+        parts.append(f"--- {csv_file.name} ---\n{text}")
+        budget -= len(text)
+    return "\n".join(parts)
+
+
+# Rare, high-signal events (RDP, persistence, account mgmt, PowerShell, log clear,
+# service install, explicit-credential logon). These are few and always worth keeping.
+_RARE_EVENT_IDS = {
+    "4648", "4697", "4698", "4699", "4700", "4701", "4702",
+    "4720", "4726", "5860", "5861", "7040", "7045",
+    "4103", "4104", "4778", "4779", "1149", "1102", "104",
+}
+# High-volume events worth sampling (logons, logoffs, priv logon, proc creation, svc state).
+# 4672 (special-privilege logon) fires constantly for SYSTEM, so it belongs here, not in rare.
+_VOLUME_EVENT_IDS = {"4624", "4625", "4634", "4647", "4672", "4688", "7034", "7035", "7036", "5857"}
+_TIMELINE_EVENT_IDS = _RARE_EVENT_IDS | _VOLUME_EVENT_IDS
+
+
+def _build_event_timeline(events: list[dict], limit: int = 400, rare_cap: int = 250) -> list[str]:
+    """One line per security event, co-locating the event ID with its timestamp:
+
+        "[event 4778] 2020-11-14 03:42:11 — Session reconnected — DOMAIN\\user"
+
+    Pairing the ID and the date in one string lets a downstream timeline tie a specific
+    incident date to a concrete Windows event (the form IR reports use). Rare high-signal
+    events (RDP, persistence, PowerShell…) are ALL kept so the incident window is never
+    crowded out by routine high-volume service-state noise; the remaining budget is filled
+    with the most recent volume events. Output is chronological.
+    """
+    def _line(e: dict, eid: str) -> tuple[str, str]:
+        ts = str(e.get("timestamp", "")).strip()
+        desc = (e.get("map_description") or "").strip() or str(e.get("channel", "")).strip()
+        user = (e.get("user_name") or "").strip()
+        s = f"[event {eid}] {ts} — {desc}"
+        if user and user not in ("-", "N/A"):
+            s += f" — {user}"
+        return ts, s
+
+    rare: list[tuple[str, str]] = []
+    volume: list[tuple[str, str]] = []
+    for e in events:
+        eid = str(e.get("event_id", "")).strip()
+        if eid in _RARE_EVENT_IDS:
+            rare.append(_line(e, eid))
+        elif eid in _VOLUME_EVENT_IDS:
+            volume.append(_line(e, eid))
+
+    chosen = rare[-rare_cap:] + volume[-max(0, limit - min(len(rare), rare_cap)):]
+    chosen.sort(key=lambda x: x[0])  # chronological by embedded timestamp
+    return [s for _, s in chosen]
+
+
+def _run(cmd: list[str], tool_name: str, data_dir: str | None = None) -> tuple[str, str]:
+    """Run an EZ tool. If ``data_dir`` is given, the CSV evidence written there is
+    folded into the audited raw_output so chain-of-custody (SHA-256) and the
+    grounding corpus reflect the actual artifact rows, not just the stdout banner.
+    """
     try:
         guard_command(cmd)
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=MAX_TOOL_TIMEOUT)
-        log_tool_execution(tool_name, cmd, result.stdout, error=result.stderr)
+        evidence = _collect_evidence_text(data_dir)
+        raw_output = result.stdout
+        if evidence:
+            raw_output = f"{result.stdout}\n=== CSV EVIDENCE ===\n{evidence}"
+        log_tool_execution(tool_name, cmd, raw_output, error=result.stderr)
         return result.stdout, result.stderr
     except subprocess.TimeoutExpired:
-        msg = f"'{tool_name}' timed out"
-        log_tool_execution(tool_name, cmd, "", error=msg)
+        # EZ tools write the CSV incrementally; a timeout still leaves real evidence
+        # on disk. Fold whatever was written so chain-of-custody and grounding keep
+        # the partial rows instead of an empty record.
+        msg = f"'{tool_name}' timed out after {MAX_TOOL_TIMEOUT}s (partial evidence captured)"
+        evidence = _collect_evidence_text(data_dir)
+        log_tool_execution(tool_name, cmd, evidence, error=msg)
         return "", msg
     except FileNotFoundError:
         msg = f"Tool not found: {cmd[0]}. Check EZ_TOOLS_DIR in .env"
@@ -90,17 +207,28 @@ def _ez(tool: str) -> list[str]:
     """
     import os
     name = tool[:-4] if tool.lower().endswith(".exe") else tool
+    # RECmd ABORTS on a dirty hive ("Registry hive is dirty ... Aborting!!") when it
+    # cannot find matching .LOG1/.LOG2 transaction logs in the same dir. Live-acquired
+    # hives (NTUSER.DAT, SYSTEM, UsrClass.dat) are almost always dirty and ship TxR
+    # (.blf / .regtrans-ms) logs rather than the .LOG files RECmd replays, so it bails
+    # and the tool silently returns 0 rows. --nl tells RECmd to skip transaction-log
+    # loading and parse the hive as-is ("Continuing anyways..."). Always pass it so a
+    # dirty hive never turns into an empty (and misleading) result.
+    extra = ["--nl"] if name.lower() == "recmd" else []
     exe = EZ_TOOLS_DIR / f"{name}.exe"
     # Only exec the native .exe on Windows — on Linux those PE launchers can't run.
     if os.name == "nt" and exe.exists():
-        return [str(exe)]
-    hits = list(EZ_TOOLS_DIR.glob(f"**/{name}.dll"))
+        return [str(exe)] + extra
+    # Case-insensitive .dll match — Linux globs are case-sensitive, so e.g.
+    # "SbECmd.dll" would miss the on-disk "SBECmd.dll" and fall through to an error.
+    want = f"{name}.dll".lower()
+    hits = [p for p in EZ_TOOLS_DIR.glob("**/*.dll") if p.name.lower() == want]
     if hits:
-        return ["dotnet", str(hits[0])]
+        return ["dotnet", str(hits[0])] + extra
     if exe.exists():
-        return [str(exe)]
+        return [str(exe)] + extra
     # Fall back to a top-level dll path; _run() reports a clear error if missing.
-    return ["dotnet", str(EZ_TOOLS_DIR / f"{name}.dll")]
+    return ["dotnet", str(EZ_TOOLS_DIR / f"{name}.dll")] + extra
 
 
 def _read_csv_dir(output_dir: str, max_rows: int = 500) -> list[dict]:
@@ -120,6 +248,36 @@ def _read_csv_dir(output_dir: str, max_rows: int = 500) -> list[dict]:
     return rows[:max_rows]
 
 
+# RECmd `--csv` only emits a CSV in BATCH (--bn) mode. A single-key dump (--kn) goes
+# to STDOUT as an indented key/subkey/value tree, so a CSV-only reader sees 0 rows
+# even when the key is full of data. This regex pulls the subkey records out of that
+# stdout tree so --kn tools (USBSTOR, network interfaces, RecentDocs) still yield
+# structured entries.
+_RECMD_SUBKEY_RE = __import__("re").compile(
+    r"Name:\s*(?P<name>.+?)\s*\(Last write:\s*(?P<lastwrite>[^)]*)\)"
+)
+
+
+def _recmd_subkeys_from_stdout(stdout: str, max_rows: int = 200) -> list[dict]:
+    """Extract subkey records (name + last-write time) from a RECmd --kn stdout dump."""
+    out: list[dict] = []
+    for m in _RECMD_SUBKEY_RE.finditer(stdout or ""):
+        name = m.group("name").strip()
+        if not name:
+            continue
+        out.append({"name": name, "last_write": m.group("lastwrite").strip()})
+        if len(out) >= max_rows:
+            break
+    return out
+
+
+def _offline_controlset(key: str) -> str:
+    """Offline SYSTEM hives have no ``CurrentControlSet`` symlink — only ControlSet001/2.
+    Rewrite the key so RECmd can resolve it against an acquired hive.
+    """
+    return key.replace("CurrentControlSet", "ControlSet001", 1)
+
+
 def register_windows_artifact_tools(mcp, rag=None):
 
     @mcp.tool()
@@ -135,7 +293,7 @@ def register_windows_artifact_tools(mcp, rag=None):
             evtx_dir:  Path to directory containing .evtx files.
             event_ids: Comma-separated event IDs to include. Empty = default IR set.
         """
-        output_dir = str(EXPORTS_DIR / "evtx")
+        output_dir = _fresh_outdir("evtx")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         DEFAULT_IDS = (
@@ -148,7 +306,7 @@ def register_windows_artifact_tools(mcp, rag=None):
             "--csv", output_dir, "--csvf", "evtx_output.csv",
             "--inc", filter_ids,
         ]
-        _run(cmd, "parse_event_logs")
+        _run(cmd, "parse_event_logs", data_dir=output_dir)
         audit_id = get_last_audit_id()
         increment_tool_counter()
 
@@ -191,6 +349,7 @@ def register_windows_artifact_tools(mcp, rag=None):
         data = {
             "total_events": len(events),
             "summary": summary,
+            "incident_event_timeline": _build_event_timeline(events),
             "mitre_techniques": list(mitre_by_category.values()),
             "rag_context": rag_context,
             "events": events[:500],
@@ -208,10 +367,10 @@ def register_windows_artifact_tools(mcp, rag=None):
         Args:
             system_hive_path: Path to extracted SYSTEM hive file.
         """
-        output_dir = str(EXPORTS_DIR / "shimcache")
+        output_dir = _fresh_outdir("shimcache")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         cmd = _ez("AppCompatCacheParser.exe") + ["-f", system_hive_path, "--csv", output_dir]
-        _run(cmd, "parse_shimcache")
+        _run(cmd, "parse_shimcache", data_dir=output_dir)
         audit_id = get_last_audit_id()
         increment_tool_counter()
 
@@ -252,10 +411,10 @@ def register_windows_artifact_tools(mcp, rag=None):
         Args:
             amcache_path: Path to the Amcache.hve file.
         """
-        output_dir = str(EXPORTS_DIR / "amcache")
+        output_dir = _fresh_outdir("amcache")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         cmd = _ez("AmcacheParser.exe") + ["-f", amcache_path, "--csv", output_dir]
-        _run(cmd, "parse_amcache")
+        _run(cmd, "parse_amcache", data_dir=output_dir)
         audit_id = get_last_audit_id()
         increment_tool_counter()
 
@@ -294,9 +453,9 @@ def register_windows_artifact_tools(mcp, rag=None):
         Args:
             prefetch_dir: Path to directory containing .pf files.
         """
-        output_dir = str(EXPORTS_DIR / "prefetch")
+        output_dir = _fresh_outdir("prefetch")
         cmd = _ez("PECmd.exe") + ["-d", prefetch_dir, "--csv", output_dir]
-        _run(cmd, "parse_prefetch")
+        _run(cmd, "parse_prefetch", data_dir=output_dir)
         audit_id = get_last_audit_id()
         increment_tool_counter()
 
@@ -332,10 +491,10 @@ def register_windows_artifact_tools(mcp, rag=None):
         Args:
             mft_path: Path to extracted $MFT file from evidence volume.
         """
-        output_dir = str(EXPORTS_DIR / "mft")
+        output_dir = _fresh_outdir("mft")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         cmd = _ez("MFTECmd.exe") + ["-f", mft_path, "--csv", output_dir]
-        _run(cmd, "parse_mft")
+        _run(cmd, "parse_mft", data_dir=output_dir)
         audit_id = get_last_audit_id()
         increment_tool_counter()
 
@@ -392,9 +551,9 @@ def register_windows_artifact_tools(mcp, rag=None):
         Args:
             lnk_dir: Path to directory containing .lnk files.
         """
-        output_dir = str(EXPORTS_DIR / "lnk")
+        output_dir = _fresh_outdir("lnk")
         cmd = _ez("LECmd.exe") + ["-d", lnk_dir, "--csv", output_dir]
-        _run(cmd, "parse_lnk_files")
+        _run(cmd, "parse_lnk_files", data_dir=output_dir)
         audit_id = get_last_audit_id()
         increment_tool_counter()
 
@@ -429,9 +588,9 @@ def register_windows_artifact_tools(mcp, rag=None):
         Args:
             jumplist_dir: Path to directory containing jump list files.
         """
-        output_dir = str(EXPORTS_DIR / "jumplists")
+        output_dir = _fresh_outdir("jumplists")
         cmd = _ez("JLECmd.exe") + ["-d", jumplist_dir, "--csv", output_dir]
-        _run(cmd, "parse_jump_lists")
+        _run(cmd, "parse_jump_lists", data_dir=output_dir)
         audit_id = get_last_audit_id()
         increment_tool_counter()
 
@@ -448,12 +607,12 @@ def register_windows_artifact_tools(mcp, rag=None):
             hive_path:      Absolute path to the hive file (NTUSER.DAT, SOFTWARE, SYSTEM, etc.).
             search_pattern: Optional keyword to search within key names or values.
         """
-        output_dir = str(EXPORTS_DIR / "registry")
+        output_dir = _fresh_outdir("registry")
         cmd = _ez("RECmd.exe") + ["-f", hive_path, "--csv", output_dir]
         if search_pattern:
             cmd += ["--sk", search_pattern]
 
-        _run(cmd, "parse_registry_hive")
+        _run(cmd, "parse_registry_hive", data_dir=output_dir)
         audit_id = get_last_audit_id()
         increment_tool_counter()
 
@@ -488,10 +647,10 @@ def register_windows_artifact_tools(mcp, rag=None):
         Args:
             recycle_bin_path: Path to $Recycle.Bin directory or SID subdirectory.
         """
-        output_dir = str(EXPORTS_DIR / "recycle_bin")
+        output_dir = _fresh_outdir("recycle_bin")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         cmd = _ez("RBCmd.exe") + ["-d", recycle_bin_path, "--csv", output_dir]
-        _run(cmd, "parse_recycle_bin")
+        _run(cmd, "parse_recycle_bin", data_dir=output_dir)
         audit_id = get_last_audit_id()
         increment_tool_counter()
 
@@ -526,15 +685,15 @@ def register_windows_artifact_tools(mcp, rag=None):
         and energy consumption. Stored at C:\\Windows\\System32\\sru\\SRUDB.dat.
 
         Use to confirm data exfiltration volume per cloud service app.
-        Critical for ROCBA-style cases where cloud sync services are suspected exfil channels.
+        Critical where cloud sync services are suspected exfiltration channels.
 
         Args:
             srum_path: Absolute path to SRUDB.dat extracted from the evidence volume.
         """
-        output_dir = str(EXPORTS_DIR / "srum")
+        output_dir = _fresh_outdir("srum")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         cmd = _ez("SrumECmd.exe") + ["-f", srum_path, "--csv", output_dir]
-        _run(cmd, "parse_srum")
+        _run(cmd, "parse_srum", data_dir=output_dir)
         audit_id = get_last_audit_id()
         increment_tool_counter()
 
@@ -618,10 +777,10 @@ def register_windows_artifact_tools(mcp, rag=None):
         Args:
             usn_path: Absolute path to the extracted $UsnJrnl:$J file.
         """
-        output_dir = str(EXPORTS_DIR / "usn_journal")
+        output_dir = _fresh_outdir("usn_journal")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         cmd = _ez("MFTECmd.exe") + ["-f", usn_path, "--csv", output_dir]
-        _run(cmd, "parse_usn_journal")
+        _run(cmd, "parse_usn_journal", data_dir=output_dir)
         audit_id = get_last_audit_id()
         increment_tool_counter()
 
@@ -748,21 +907,42 @@ def register_windows_artifact_tools(mcp, rag=None):
         Args:
             ntuser_path: Path to the NTUSER.DAT hive file for a specific user.
         """
-        output_dir = str(EXPORTS_DIR / "userassist")
+        output_dir = _fresh_outdir("userassist")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        batch_file = str(EZ_TOOLS_DIR / "BatchExamples" / "UserAssist.reb")
+        # RECmd ships its batch files under RECmd/BatchExamples/, and the UserAssist
+        # one is named BatchExampleUserAssist.reb — not BatchExamples/UserAssist.reb.
+        # Glob for it so a layout change can't silently break the parse (RECmd errors
+        # "batch file does not exist" and returns 0 rows otherwise).
+        _ua = (list(EZ_TOOLS_DIR.glob("**/BatchExample*UserAssist*.reb"))
+               or list(EZ_TOOLS_DIR.glob("**/UserAssist.reb")))
+        batch_file = str(_ua[0]) if _ua else str(
+            EZ_TOOLS_DIR / "RECmd" / "BatchExamples" / "BatchExampleUserAssist.reb")
         cmd = _ez("RECmd.exe") + ["-f", ntuser_path, "--bn", batch_file, "--csv", output_dir]
-        _run(cmd, "parse_userassist")
+        _run(cmd, "parse_userassist", data_dir=output_dir)
         audit_id = get_last_audit_id()
         increment_tool_counter()
 
         entries = _read_csv_dir(output_dir)
         useful = []
         for row in entries:
-            path = row.get("ValueName", row.get("Path", ""))
-            count = row.get("RunCounter", row.get("Count", ""))
-            last_run = row.get("LastExecuted", row.get("LastWriteTimestamp", ""))
-            if path:
+            # The UserAssist batch DECODES each entry: ValueName holds the raw ROT13
+            # value, but the human-readable program path lands in ValueData, the last
+            # run time in ValueData2 ("Last executed: ..."), and the run count in
+            # ValueData3 ("Run count: N"). Reading ValueName (the old behaviour) yields
+            # ROT13 gibberish like "HRZR_PGYFRFFVBA"; prefer the decoded ValueData.
+            path = (row.get("ValueData") or "").strip()
+            if not path or path.upper().startswith("UEME_"):
+                # ValueData empty or a session/control counter — fall back to the ROT13
+                # ValueName, decoded, so nothing is silently dropped.
+                raw = row.get("ValueName", "") or ""
+                try:
+                    path = __import__("codecs").decode(raw, "rot_13")
+                except Exception:
+                    path = raw
+            count = (row.get("ValueData3") or "").replace("Run count:", "").strip()
+            last_run = (row.get("ValueData2") or "").replace("Last executed:", "").strip() \
+                or row.get("LastWriteTimestamp", "")
+            if path and not path.upper().startswith("UEME_"):
                 useful.append({"path": path, "run_count": count, "last_run": last_run,
                                "suspicious": _is_suspicious_path(path)})
 
@@ -785,17 +965,18 @@ def register_windows_artifact_tools(mcp, rag=None):
         Args:
             ntuser_path: Path to the NTUSER.DAT hive file for a specific user.
         """
-        output_dir = str(EXPORTS_DIR / "recentdocs")
+        output_dir = _fresh_outdir("recentdocs")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         cmd = _ez("RECmd.exe") + [ "-f", ntuser_path,
-            "--kn", "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RecentDocs",
+            "--kn", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RecentDocs",
             "--csv", output_dir,
         ]
-        _run(cmd, "parse_recentdocs")
+        stdout, _ = _run(cmd, "parse_recentdocs", data_dir=output_dir)
         audit_id = get_last_audit_id()
         increment_tool_counter()
 
-        entries = _read_csv_dir(output_dir)
+        # --kn dumps to stdout (no CSV); fall back to parsing the subkey tree.
+        entries = _read_csv_dir(output_dir) or _recmd_subkeys_from_stdout(stdout)
         data = {
             "total_recentdocs": len(entries),
             "entries": entries[:200],
@@ -814,17 +995,18 @@ def register_windows_artifact_tools(mcp, rag=None):
         Args:
             system_hive_path: Path to the SYSTEM hive file.
         """
-        output_dir = str(EXPORTS_DIR / "network_history")
+        output_dir = _fresh_outdir("network_history")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         cmd = _ez("RECmd.exe") + [ "-f", system_hive_path,
-            "--kn", "CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces",
+            "--kn", _offline_controlset("CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces"),
             "--csv", output_dir,
         ]
-        _run(cmd, "parse_network_history")
+        stdout, _ = _run(cmd, "parse_network_history", data_dir=output_dir)
         audit_id = get_last_audit_id()
         increment_tool_counter()
 
-        entries = _read_csv_dir(output_dir)
+        # --kn dumps to stdout (no CSV); fall back to parsing the subkey tree.
+        entries = _read_csv_dir(output_dir) or _recmd_subkeys_from_stdout(stdout)
         data = {
             "total_network_entries": len(entries),
             "entries": entries[:200],
@@ -843,17 +1025,19 @@ def register_windows_artifact_tools(mcp, rag=None):
         Args:
             system_hive_path: Path to the SYSTEM hive file.
         """
-        output_dir = str(EXPORTS_DIR / "usb_history")
+        output_dir = _fresh_outdir("usb_history")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         cmd = _ez("RECmd.exe") + [ "-f", system_hive_path,
-            "--kn", "CurrentControlSet\\Enum\\USBSTOR",
+            "--kn", _offline_controlset("CurrentControlSet\\Enum\\USBSTOR"),
             "--csv", output_dir,
         ]
-        _run(cmd, "parse_usb_history")
+        stdout, _ = _run(cmd, "parse_usb_history", data_dir=output_dir)
         audit_id = get_last_audit_id()
         increment_tool_counter()
 
-        entries = _read_csv_dir(output_dir)
+        # --kn dumps to stdout (no CSV); the USBSTOR subkey names ARE the device
+        # identifiers (Disk&Ven_..&Prod_..&Rev_..), so parse them from the tree.
+        entries = _read_csv_dir(output_dir) or _recmd_subkeys_from_stdout(stdout)
         data = {
             "total_usb_devices": len(entries),
             "entries": entries[:100],

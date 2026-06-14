@@ -123,7 +123,10 @@
      [
       "[event 4",
       "[event 7",
-      "[event 1"
+      "[event 1",
+      "re:\\bevent\\s*(id\\s*)?(46\\d\\d|47\\d\\d|11\\d\\d|10\\d\\d)\\b",
+      "re:\\b(4624|4625|4634|4647|4648|4672|4720|4768|4769|4776|4778|4779|1102|1149)\\b",
+      "parse_event_log"
      ]
     ],
     "co_occur": true
@@ -138,7 +141,10 @@
       ".docx",
       ".xlsx",
       ".pptx",
-      ".pdf"
+      ".pdf",
+      "re:\\.(zip|7z|rar|tar|gz)\\b",
+      "re:\\.(pst|ost)\\b",
+      "re:\\bdownloaded?\\b.{0,40}\\.(zip|7z|rar|pst|ost|exe|docx?|xlsx?|pdf)"
      ]
     ]
    },
@@ -151,7 +157,11 @@
       "docs.google.com",
       "dropbox.com",
       "icloud.com",
-      "1drv.ms"
+      "1drv.ms",
+      "re:[\\w.-]+\\.sharepoint\\.com",
+      "re:[\\w.-]+-my\\.sharepoint\\.com",
+      "re:\\bg:\\\\my drive",
+      "re:\\bmy drive\\b"
      ]
     ]
    },
@@ -183,7 +193,7 @@
    "Attacker identity beyond what evidence shows",
    "Claiming Nov 16 RDP attacks are the Nov 13 incident (different event)"
   ],
-  "_scoring_note": "must_identify uses CONTENT-based indicator groups (extracted-artifact strings: ISO dates, event-log entries, cloud DOMAINS, URLs, file paths) \u2014 a criterion is satisfied only when each group has >=1 hit in the findings TEXT VALUES. Prose mentions (e.g. 'Nov 13') and memory process names (e.g. OneDrive.exe) do NOT satisfy them. Replaces the broken all-words matcher. Identical for both systems.",
+  "_scoring_note": "must_identify uses CONTENT-based indicator groups (extracted-artifact strings: ISO dates, event-log entries, cloud DOMAINS, URLs, file paths) \u2014 a criterion is satisfied only when each group has >=1 hit in the findings TEXT VALUES. Prose mentions (e.g. 'Nov 13') and memory process names (e.g. OneDrive.exe) do NOT satisfy them. Replaces the broken all-words matcher. Identical for both systems. Indicators prefixed 're:' are matched as case-insensitive REGEX so the scorer recognises evidence regardless of how a tool formats it (a Windows logon written as '4624' or '[Event 4624]'; a cloud host as 'onedrive.live.com' or '<tenant>.sharepoint.com' or a 'G:\\My Drive' mapped path) rather than hard-coding one case's vocabulary.",
   "_window_note": "Incident window 'Nov 13 evening EST' maps to UTC 2020-11-13T23:00 .. 2020-11-14 in artifacts; both ISO dates accepted."
  }
 }

@@ -16,11 +16,59 @@ from pathlib import Path
 
 def _badge(tid: str, name: str) -> str:
     """Render a MITRE ATT&CK technique badge."""
+    tid = str(tid)
     url = f"https://attack.mitre.org/techniques/{tid.replace('.', '/')}"
     return (
         f'<a href="{url}" target="_blank" class="badge">'
         f'<span class="tid">{tid}</span> {name}</a>'
     )
+
+
+# technique_id -> human name, harvested from the same rule table the auto-mapper uses,
+# so a findings list of bare IDs (['T1039', ...]) still renders named badges instead of
+# the unhelpful "T1039 T1039".
+def _build_technique_names() -> dict[str, str]:
+    names: dict[str, str] = {}
+    try:
+        import mcp_server.parsers.mitre_auto_map as mm
+        for attr in dir(mm):
+            val = getattr(mm, attr)
+            if isinstance(val, list):
+                for row in val:
+                    if isinstance(row, tuple) and len(row) == 3 and str(row[1]).startswith("T"):
+                        names.setdefault(str(row[1]), str(row[2]))
+    except Exception:
+        pass
+    return names
+
+
+_TECHNIQUE_NAMES = _build_technique_names()
+
+
+def _mitre_pair(item) -> tuple[str, str]:
+    """Normalise a mitre_techniques entry into (technique_id, display_name).
+
+    Entries arrive in two shapes across the two systems: a bare string
+    ('T1567.002' or 'T1567.002 — Exfiltration to Cloud Storage'), or a dict with
+    varying keys ({'id'/'technique_id'/'tid'/'technique': ..., 'name'/'description': ...}).
+    """
+    if isinstance(item, dict):
+        tid = (item.get("id") or item.get("technique_id") or item.get("tid")
+               or item.get("technique") or "")
+        name = item.get("name") or item.get("description") or ""
+        if not tid:  # no explicit id field — fall back to any T#### in the values
+            import re
+            m = re.search(r"T\d{4}(?:\.\d{3})?", str(item))
+            tid = m.group() if m else str(item)
+        return str(tid), str(name or _TECHNIQUE_NAMES.get(str(tid), tid))
+    s = str(item).strip()
+    # Bare "T1039" / "T1039 — Name": split id from any trailing name, else look it up.
+    import re
+    m = re.match(r"(T\d{4}(?:\.\d{3})?)\s*[—:-]?\s*(.*)$", s)
+    if m:
+        tid, rest = m.group(1), m.group(2).strip()
+        return tid, rest or _TECHNIQUE_NAMES.get(tid, tid)
+    return s, s
 
 
 def _score_bar(score: float, label: str, color: str) -> str:
@@ -70,28 +118,33 @@ def generate_comparison_html(
     b_mitre = baseline_findings.get("mitre_techniques", [])
     d_mitre = deepsift_findings.get("mitre_techniques", [])
 
-    mitre_badges_b = " ".join(_badge(t, t) for t in b_mitre) if b_mitre else "<em>None</em>"
-    mitre_badges_d = " ".join(_badge(t, t) for t in d_mitre) if d_mitre else "<em>None</em>"
+    mitre_badges_b = " ".join(_badge(*_mitre_pair(t)) for t in b_mitre) if b_mitre else "<em>None</em>"
+    mitre_badges_d = " ".join(_badge(*_mitre_pair(t)) for t in d_mitre) if d_mitre else "<em>None</em>"
 
-    # Required findings table rows
+    # Required findings table rows. Criteria may be dicts ({"name","groups"}) or
+    # legacy strings; reuse the scorer's authoritative match results rather than
+    # re-deriving them here (keeps the table consistent with the headline numbers).
+    def _label(c):
+        return c.get("name", str(c)) if isinstance(c, dict) else str(c)
+
+    b_matched = set(baseline_score.get("matched_criteria", []))
+    d_matched = set(deepsift_score.get("matched_criteria", []))
     criteria_rows = ""
     for criterion in must_identify:
-        kws = criterion.lower().split()
-        in_b = all(k in str(baseline_findings).lower() for k in kws)
-        in_d = all(k in str(deepsift_findings).lower() for k in kws)
-        b_cell = '<td class="found">✔ Found</td>' if in_b else '<td class="missed">✘ Missed</td>'
-        d_cell = '<td class="found">✔ Found</td>' if in_d else '<td class="missed">✘ Missed</td>'
-        criteria_rows += f"<tr><td>{criterion}</td>{b_cell}{d_cell}</tr>"
+        label = _label(criterion)
+        b_cell = '<td class="found">✔ Found</td>' if label in b_matched else '<td class="missed">✘ Missed</td>'
+        d_cell = '<td class="found">✔ Found</td>' if label in d_matched else '<td class="missed">✘ Missed</td>'
+        criteria_rows += f"<tr><td>{label}</td>{b_cell}{d_cell}</tr>"
 
-    # Should-not-hallucinate table rows
+    # Should-not-hallucinate table rows (a rule "fires" only if the scorer detected it).
+    b_hall_names = set(baseline_score.get("hallucination_details", []))
+    d_hall_names = set(deepsift_score.get("hallucination_details", []))
     hall_rows = ""
     for rule in should_not:
-        kws = rule.lower().split()[:3]
-        in_b = all(k in str(baseline_findings).lower() for k in kws)
-        in_d = all(k in str(deepsift_findings).lower() for k in kws)
-        b_cell = '<td class="hallucinated">⚠ Hallucinated</td>' if in_b else '<td class="clean">✔ Clean</td>'
-        d_cell = '<td class="hallucinated">⚠ Hallucinated</td>' if in_d else '<td class="clean">✔ Clean</td>'
-        hall_rows += f"<tr><td>{rule}</td>{b_cell}{d_cell}</tr>"
+        label = _label(rule)
+        b_cell = '<td class="hallucinated">⚠ Hallucinated</td>' if label in b_hall_names else '<td class="clean">✔ Clean</td>'
+        d_cell = '<td class="hallucinated">⚠ Hallucinated</td>' if label in d_hall_names else '<td class="clean">✔ Clean</td>'
+        hall_rows += f"<tr><td>{label}</td>{b_cell}{d_cell}</tr>"
 
     html = f"""<!DOCTYPE html>
 <html lang="en">

@@ -14,7 +14,9 @@ threat intelligence context into every analysis step.
 
 **148 typed MCP functions · 23 tool modules · 15 parser modules · Per-finding RAG enrichment**
 
-**Hackathon:** Find Evil! (SANS DFIR, Devpost) — Deadline: June 15, 2026
+**Status:** Production-ready — every tool runs a real forensic binary/parser (no demo/simulation/
+placeholder paths), no evidence path is hard-coded, EZ Tools runs are case-isolated, and the RAG
+corpus ships case-agnostic. Originally built for the Find Evil! (SANS DFIR, Devpost) challenge.
 
 ---
 
@@ -319,7 +321,8 @@ When you identify suspicious activity, map it to ATT&CK techniques:
 - [x] RAG knowledge base (ChromaDB + sentence-transformers)
 - [x] MITRE ATT&CK ingestion pipeline
 - [x] Threat intel and case history ingestion
-- [x] **ROCBA case IOC ingest** (`rag/ingest/rocba_iocs.py`) — seeds RAG with case-specific hostile IPs, MRC.exe verdict, cloud exfil surface
+- [x] **Case-agnostic offline corpus** (`rag/ingest/knowledge_corpus.py`) — MITRE catalog + LOLBAS + Hunt Evil baseline; NO case IOCs auto-loaded
+- [x] **Per-case IOC ingest** (`rag/ingest/case_history.py`, opt-in) — load a case's own IOCs only for that investigation, so one case never biases another. `rag/ingest/rocba_iocs.py` is an example pack (opt-in via `--load-rocba`).
 - [x] **rag/ingest/run_all.py** — one-command RAG seeding script
 - [x] Benchmark runner and scorer
 - [x] **benchmark/vigia_runner.py** — standardized multi-case benchmark (vigia-cases)
@@ -327,14 +330,16 @@ When you identify suspicious activity, map it to ATT&CK techniques:
 - [x] LangGraph multi-agent orchestrator — memory + disk + network + browser agents
   - [x] disk_agent fully implemented (event logs, prefetch, shimcache, LNK files via EZ Tools)
   - [x] browser_agent implemented (Chrome history, downloads, cloud exfil classification)
-- [x] **demo.py** — end-to-end demo script (seed RAG → run investigation → generate report)
-- [x] Parser unit tests (32/32 passing)
+- [x] **demo.py** — end-to-end deterministic pipeline (seed RAG → run investigation → generate report)
+- [x] Unit tests (61 passing, 1 skipped)
 - [x] docs/architecture.md, docs/dataset.md, docs/devpost_submission.md
 
-### Completed — ROCBA validation (memory + disk)
-- [x] Ran DeepSIFT on SIFT VM against Rocba-Memory.raw + rocba-cdrive.e01 → analysis/findings.json
-- [x] Benchmark vs Protocol SIFT baseline: **DeepSIFT 4/4 (100%), Protocol SIFT 0/4, 0 hallucinations**
-- [x] RAG seeded offline (Hunt Evil baseline + ROCBA IOCs) — works without network/torch
+### Completed — validation
+- [x] **ROCBA (memory + disk):** DeepSIFT 4/4 (100%), Protocol SIFT 0/4, 0 hallucinations
+- [x] **Vanko / FOR500 "Abducted Zebrafish" (disk-only):** DeepSIFT 4/4 (100%), Protocol SIFT 3/4,
+      0 hallucinations, 100% claim grounding — uniquely recovered the zebrafish/cell-regeneration/
+      DNA-splice subject matter via jump-list + shellbag analysis
+- [x] RAG seeded offline (case-agnostic corpus) — works without network/torch
 
 ### Run modes
 - **Agentic (senior-analyst):** `python3 investigate.py --image ... --evidence-mount ...` — LLM
@@ -347,6 +352,20 @@ When you identify suspicious activity, map it to ATT&CK techniques:
 - `mcp_server.audit.guard_command` blocks destructive/exfil binaries + shell redirection at every
   exec choke point (volatility `_run`, windows_artifacts `_run`, registry `_run_ez`); rejects
   shell-string commands. `guard_output_path` blocks writes to `/cases/`, `/mnt/`, `/media/`.
+
+### EZ Tools / registry hardening (production-critical)
+- **Cross-case isolation**: every EZ Tools wrapper clears its own CSV output dir before running
+  (`_fresh_outdir`), so a prior case's CSVs (e.g. another profile's LNK history) are never re-read
+  as the current case's findings.
+- **Dirty hives**: RECmd/SbECmd always run with `--nl`. Live-acquired hives are routinely "dirty"
+  and ship TxR `.blf` logs, not the `.LOG1/.LOG2` files those tools replay — without `--nl` they
+  abort and silently return 0 rows.
+- **Offline hives**: registry key paths resolve `ControlSet001` (acquired SYSTEM hives have no
+  `CurrentControlSet`); single-key `--kn` dumps (which print to stdout, not CSV) are parsed from
+  stdout into structured entries.
+- **Decoding**: UserAssist is read from the decoded ValueData/ValueData2/ValueData3 columns (path /
+  last-executed / run-count), not the raw ROT13 ValueName. SbECmd output (named per hive) is read by
+  scanning every CSV it writes. EZ Tool resolution is case-insensitive (e.g. `SBECmd.dll`).
 
 ### SIFT-Linux runtime notes (important)
 - **EZ Tools**: invoke as `dotnet /opt/zimmermantools/<Tool>.dll` (subdir-aware, e.g.
@@ -363,10 +382,13 @@ When you identify suspicious activity, map it to ATT&CK techniques:
   strings must appear together in one entry); prose mentions do not score. See
   `rocba_ground_truth.json._scoring_note`.
 
-### In Progress / TODO
-- [ ] Fill in TBD numbers in docs/devpost_submission.md
-- [ ] Record demo video
-- [ ] Submit to Devpost (deadline: June 15, 2026)
+### Production readiness
+- Every tool executes a real forensic binary or parser — no simulated, demo-only, or placeholder
+  analysis paths anywhere in the product code.
+- No evidence path is hard-coded: all image/hive/mount paths are supplied per invocation.
+- The RAG knowledge base ships case-agnostic; per-case IOCs are opt-in (see above).
+- Missing external tools (e.g. yara/hayabusa/capa/floss if not installed) degrade gracefully with a
+  clear error rather than crashing — install them on the deployment host to enable those tools.
 
 ---
 

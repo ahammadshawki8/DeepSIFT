@@ -12,6 +12,29 @@ class BenchmarkScorer:
         self._last_findings: dict = {}
 
     @staticmethod
+    def _hit(indicator: str, haystack: str) -> bool:
+        """True if a single indicator matches the haystack.
+
+        Two indicator forms, chosen per-indicator so any case (not just ROCBA) can
+        express evidence in a representation-independent way:
+          * 're:<pattern>'  — regular-expression match (case-insensitive). Use this
+            when the SAME artifact can be written several ways, e.g. a Windows event
+            written as '4624' OR '[Event 4624]' OR 'event id 4624', or a cloud host
+            as 'onedrive.live.com' OR '<tenant>.sharepoint.com'. The matcher should
+            recognise the evidence, not one tool's formatting.
+          * literal          — case-insensitive substring test (back-compat default).
+        A bad regex degrades gracefully to a literal substring test of the pattern.
+        """
+        ind = str(indicator)
+        if ind.startswith("re:"):
+            pat = ind[3:]
+            try:
+                return re.search(pat, haystack, re.IGNORECASE) is not None
+            except re.error:
+                return pat.lower() in haystack
+        return ind.lower() in haystack
+
+    @staticmethod
     def _leaf_strings(obj) -> list[str]:
         """Flatten a findings dict into individual lowercase leaf strings, so a
         criterion needing co-occurrence is tested within ONE artifact entry."""
@@ -93,12 +116,12 @@ class BenchmarkScorer:
                     # so e.g. an incident DATE and an event/URL token must appear
                     # together — not be matched from two unrelated fields.
                     ok = bool(groups) and any(
-                        all(any(str(syn).lower() in leaf for syn in group) for group in groups)
+                        all(any(self._hit(syn, leaf) for syn in group) for group in groups)
                         for leaf in leaves
                     )
                 else:
                     ok = bool(groups) and all(
-                        any(str(syn).lower() in text for syn in group) for group in groups
+                        any(self._hit(syn, text) for syn in group) for group in groups
                     )
                 label = criterion.get("name", str(criterion))
             else:
@@ -132,11 +155,11 @@ class BenchmarkScorer:
                 continue
             if rule.get("co_occur"):
                 hit = any(
-                    all(any(str(s).lower() in leaf for s in g) for g in groups)
+                    all(any(self._hit(s, leaf) for s in g) for g in groups)
                     for leaf in leaves
                 )
             else:
-                hit = all(any(str(s).lower() in text for s in g) for g in groups)
+                hit = all(any(self._hit(s, text) for s in g) for g in groups)
             if hit:
                 detected.append(rule.get("name", str(rule)))
         return detected

@@ -28,6 +28,8 @@ rag/data/
 # Runtime outputs (case-specific, not for version control)
 exports/
 analysis/
+reports/
+docs/*.html
 
 # Test cache
 .pytest_cache/

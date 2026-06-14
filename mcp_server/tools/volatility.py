@@ -513,10 +513,29 @@ def register_volatility_tools(mcp, rag=None):
                 "error": "audit_ids required — provide audit_ids from tool calls this session."
             })
 
-        try:
-            findings = json.loads(proposed_findings_json)
-        except (json.JSONDecodeError, TypeError) as e:
-            return json.dumps({"error": f"Invalid JSON in proposed_findings_json: {e}"})
+        # Accept the argument however the client/agent shaped it. FastMCP may hand
+        # us a dict already, or a JSON string, or — when the agent over-escapes —
+        # a JSON string that itself decodes to ANOTHER JSON string (double-encoded).
+        # Decode up to a couple of layers until we reach a dict, so a quoting quirk
+        # never surfaces as a server-side 'str has no attribute get' crash.
+        findings = proposed_findings_json
+        for _ in range(3):
+            if isinstance(findings, dict):
+                break
+            if isinstance(findings, str):
+                try:
+                    findings = json.loads(findings)
+                except (json.JSONDecodeError, ValueError) as e:
+                    return json.dumps({"error": f"Invalid JSON in proposed_findings_json: {e}"})
+            else:
+                break
+        if not isinstance(findings, dict):
+            return json.dumps({
+                "error": "proposed_findings_json must be a JSON OBJECT (dict) with keys like "
+                         "suspicious_processes, network_iocs, mitre_techniques, observation, "
+                         f"interpretation — got {type(findings).__name__}. Pass the object once, "
+                         "not a quoted/escaped string of it.",
+            })
 
         verifier = GroundingVerifier(ANALYSIS_DIR)
         result = verifier.verify(findings, audit_ids)

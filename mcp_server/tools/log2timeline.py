@@ -38,7 +38,7 @@ def register_log2timeline_tools(mcp, rag=None):
 
         Args:
             image_path: Absolute path to disk image or evidence directory.
-            output_name: Base name for the output file (no extension). E.g. 'rocba_disk'.
+            output_name: Base name for the output file (no extension). E.g. 'case_disk'.
         """
         output_path = str(EXPORTS_DIR / f"{output_name}.plaso")
         cmd = [LOG2TIMELINE_CMD, output_path, image_path]

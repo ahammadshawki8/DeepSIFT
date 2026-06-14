@@ -165,7 +165,10 @@ class ForensicOrchestrator:
                 # Windows .exe. Resolve <Tool>.dll anywhere under EZ_TOOLS_DIR
                 # (some, e.g. EvtxECmd, live in a subdir) and invoke via dotnet.
                 name = tool[:-4] if tool.lower().endswith(".exe") else tool
-                hits = list(EZ_TOOLS_DIR.glob(f"**/{name}.dll"))
+                # Case-insensitive match: Linux globs are case-sensitive, so e.g.
+                # "SbECmd.dll" would miss the on-disk "SBECmd.dll".
+                want = f"{name}.dll".lower()
+                hits = [p for p in EZ_TOOLS_DIR.glob("**/*.dll") if p.name.lower() == want]
                 dll = str(hits[0]) if hits else str(EZ_TOOLS_DIR / f"{name}.dll")
                 return ["dotnet", dll]
 
