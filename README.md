@@ -9,7 +9,7 @@ forensic discipline (caveats, advisories, corroboration hints), enriches finding
 MITRE ATT&CK tags and RAG-backed threat intelligence, and enforces chain-of-custody audit
 logging before the LLM ever sees a single byte of evidence.
 
-**148 typed MCP tools · 23 tool modules · 15 parser modules · Per-tool RAG enrichment · Post-hoc grounding verification · 4-axis quantified confidence scoring · 3,700+ Sigma rules via Hayabusa · 6-type contradiction detection · case-agnostic benchmark runner**
+**148 typed forensic MCP tools (+ environment preflight self-check) · 23 tool modules · 15 parser modules · Per-tool RAG enrichment · Post-hoc grounding verification · 4-axis quantified confidence scoring · 3,700+ Sigma rules via Hayabusa · 6-type contradiction detection · case-agnostic benchmark runner · zero-dependency Examiner Portal**
 
 > **Status:** Production-ready. Every tool executes a real forensic binary or parser —
 > no simulated, demo-only, or placeholder analysis paths. All evidence paths are supplied
@@ -66,9 +66,12 @@ flowchart TD
 
 ## Tool Inventory
 
-DeepSIFT exposes **148 typed MCP tools** across 18 categories. No `run_shell`, no
-`execute_command` — every tool has a typed signature, a middleware parser, and returns
-RAG-enriched structured JSON.
+DeepSIFT exposes **148 typed forensic MCP tools** across 18 categories (plus a
+`check_tool_availability` preflight tool). No `run_shell`, no `execute_command` — every
+tool has a typed signature, a middleware parser, and returns RAG-enriched structured JSON.
+Run `python3 preflight.py` first to see which tool groups are operational in your
+environment; a tool whose backing binary is missing returns a clear "unavailable" status
+with an install hint instead of crashing the investigation.
 
 ### Memory Forensics — Core (Volatility 3)
 

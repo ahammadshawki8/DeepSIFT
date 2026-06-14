@@ -75,6 +75,7 @@ from mcp_server.tools.document_analysis import register_document_analysis_tools
 from mcp_server.tools.network_extended import register_network_extended_tools
 from mcp_server.tools.disk_extended import register_disk_extended_tools
 from mcp_server.tools.threat_intel_extended import register_threat_intel_extended_tools
+from mcp_server.tools.system_health import register_system_health_tools
 
 register_volatility_tools(mcp, rag)
 register_volatility_extended_tools(mcp, rag)
@@ -98,6 +99,7 @@ register_document_analysis_tools(mcp, rag)
 register_network_extended_tools(mcp, rag)
 register_disk_extended_tools(mcp, rag)
 register_threat_intel_extended_tools(mcp, rag)
+register_system_health_tools(mcp, rag)
 
 try:
     # list_tools() is async in FastMCP; read the registry synchronously here.

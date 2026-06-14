@@ -12,7 +12,7 @@ It reduces hallucinations by parsing raw tool output into structured JSON before
 the LLM, exposing typed functions instead of generic shell commands, and injecting RAG
 threat intelligence context into every analysis step.
 
-**148 typed MCP functions · 23 tool modules · 15 parser modules · Per-finding RAG enrichment**
+**148 typed forensic MCP functions (+ preflight self-check) · 23 tool modules · 15 parser modules · Per-finding RAG enrichment**
 
 **Status:** Production-ready — every tool runs a real forensic binary/parser (no demo/simulation/
 placeholder paths), no evidence path is hard-coded, EZ Tools runs are case-isolated, and the RAG
@@ -401,7 +401,10 @@ When you identify suspicious activity, map it to ATT&CK techniques:
 - No evidence path is hard-coded: all image/hive/mount paths are supplied per invocation.
 - The RAG knowledge base ships case-agnostic; per-case IOCs are opt-in (see above).
 - Missing external tools (e.g. yara/hayabusa/capa/floss if not installed) degrade gracefully with a
-  clear error rather than crashing — install them on the deployment host to enable those tools.
+  clear 'unavailable' status + install hint rather than crashing — install them on the deployment
+  host to enable those tools.
+- **Preflight:** run `python3 preflight.py` (or the `check_tool_availability` MCP tool) to see which
+  forensic tool groups are operational in the current environment before a demo/judging run.
 
 ---
 
