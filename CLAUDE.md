@@ -417,6 +417,12 @@ When you identify suspicious activity, map it to ATT&CK techniques:
   strings must appear together in one entry); prose mentions do not score. See
   `rocba_ground_truth.json._scoring_note`.
 
+### Client-agnostic transport
+- The MCP server defaults to **stdio** (Claude Code / Claude Desktop spawn it). Set
+  `DEEPSIFT_MCP_TRANSPORT=sse` (or `streamable-http`) + `DEEPSIFT_MCP_HOST`/`DEEPSIFT_MCP_PORT`
+  to expose an HTTP endpoint that **any** MCP client (Cherry Studio, LibreChat, a remote agent, a
+  gateway) can connect to — the same typed, audited, guard-railed tool surface, over the network.
+
 ### Production readiness
 - Every tool executes a real forensic binary or parser — no simulated, demo-only, or placeholder
   analysis paths anywhere in the product code.

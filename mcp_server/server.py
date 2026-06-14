@@ -26,16 +26,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger("deepsift")
 
+import os as _os
+
 mcp = FastMCP(
     "DeepSIFT Forensic Server",
     instructions=(
-        "You are a forensic analysis assistant with access to SIFT Workstation tools. "
-        "All tools return structured JSON — do not attempt to interpret raw CLI output. "
-        "Always call get_process_list first for memory images. "
-        "Call finish_analysis when you have sufficient evidence. "
-        "Never exceed 10 tool calls without calling finish_analysis or reporting partial findings. "
-        "Never modify evidence files — all tools are read-only on evidence."
+        "You are a senior DFIR analyst with typed SIFT Workstation tools. All tools return "
+        "structured JSON — never interpret raw CLI output. Triage to the evidence: for a memory "
+        "image start with get_process_list; for a DISK-ONLY case start with disk/Windows artifacts "
+        "(parse_event_logs, parse_shellbags, parse_userassist, parse_lnk_files, parse_jump_lists, "
+        "parse_usb_history, parse_shimcache, parse_chrome_history, parse_mft). Reason explicitly: "
+        "record_hypothesis for each theory, then update_hypothesis (confirm/disprove/inconclusive "
+        "with confidence + the evidence audit_ids) as you test it — self-correct when contradicted. "
+        "Run until the evidence is sufficient, then call finish_analysis (every claim must cite an "
+        "audit_id). Never fabricate; never modify evidence — all tools are read-only on evidence."
     ),
+    host=_os.getenv("DEEPSIFT_MCP_HOST", "127.0.0.1"),
+    port=int(_os.getenv("DEEPSIFT_MCP_PORT", "8000")),
 )
 
 # ── Initialize RAG pipeline (optional — graceful degradation if unavailable) ──
@@ -111,4 +118,15 @@ except Exception:
     logger.info("DeepSIFT MCP server initialized")
 
 if __name__ == "__main__":
-    mcp.run()
+    # Client-agnostic transport. Default 'stdio' (Claude Code / Claude Desktop spawn it).
+    # Set DEEPSIFT_MCP_TRANSPORT=sse|streamable-http to expose an HTTP endpoint that ANY
+    # MCP client (Cherry Studio, LibreChat, a remote agent, a gateway) can connect to —
+    # the same typed, audited, guard-railed tool surface, served over the network.
+    transport = _os.getenv("DEEPSIFT_MCP_TRANSPORT", "stdio").strip()
+    if transport not in ("stdio", "sse", "streamable-http"):
+        logger.warning(f"Unknown DEEPSIFT_MCP_TRANSPORT={transport!r}; falling back to stdio")
+        transport = "stdio"
+    if transport != "stdio":
+        logger.info(f"Serving over {transport} at "
+                    f"{_os.getenv('DEEPSIFT_MCP_HOST','127.0.0.1')}:{_os.getenv('DEEPSIFT_MCP_PORT','8000')}")
+    mcp.run(transport=transport)

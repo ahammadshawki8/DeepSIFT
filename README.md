@@ -442,7 +442,10 @@ DeepSIFT runs three ways:
 - **Claude Code + MCP server** *(how a judge can drive it directly, no extra API key)*: point
   Claude Code at the DeepSIFT MCP server via `.mcp.json` and ask it to investigate `/mnt/evidence`.
   Claude Code *is* the agent; every action goes through the typed, parsed, audited, guard-railed
-  tools — it cannot run a raw shell command.
+  tools — it cannot run a raw shell command. The session records its reasoning via
+  `record_hypothesis`/`update_hypothesis`/`finish_analysis`, producing an auditable autonomy trail
+  with no API key. **Client-agnostic:** set `DEEPSIFT_MCP_TRANSPORT=sse` to serve the same tools over
+  HTTP to *any* MCP client (Claude Desktop, Cherry Studio, LibreChat, a remote agent, or a gateway).
 - **`investigate.py` — agentic reasoning** *(the senior-analyst mode)*: an LLM forms explicit
   **hypotheses**, chooses which typed MCP tool to run next, reads the parsed/audited JSON,
   marks each hypothesis **confirmed / disproved / inconclusive with a confidence**, **self-corrects**
