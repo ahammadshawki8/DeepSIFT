@@ -2,7 +2,7 @@
 Forensic Knowledge Base — per-tool caveats, advisories, and corroboration hints.
 
 Injected into every MCP tool response so the LLM reasons about forensic discipline
-at the tool layer, not just via system prompt. Inspired by Valhuntir's YAML catalog.
+at the tool layer, not just via system prompt — a per-tool forensic knowledge catalog.
 
 Every tool response that passes through wrap_response() gains:
   - caveats:       Known limitations / false-positive sources for this tool

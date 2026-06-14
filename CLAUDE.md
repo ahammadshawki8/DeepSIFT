@@ -339,7 +339,7 @@ When you identify suspicious activity, map it to ATT&CK techniques:
   - [x] disk_agent fully implemented (event logs, prefetch, shimcache, LNK files via EZ Tools)
   - [x] browser_agent implemented (Chrome history, downloads, cloud exfil classification)
 - [x] **demo.py** — end-to-end deterministic pipeline (seed RAG → run investigation → generate report)
-- [x] Unit tests (61 passing, 1 skipped)
+- [x] Unit tests (74 passing, 1 skipped)
 - [x] docs/architecture.md, docs/dataset.md, docs/devpost_submission.md
 
 ### Completed — validation

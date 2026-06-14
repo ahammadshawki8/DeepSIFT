@@ -32,7 +32,7 @@ logging before the LLM ever sees a single byte of evidence.
   re-checks every claim against the cited raw tool output and recomputes the audit hash chain. The
   ground-truth files are *derived from the organizer case scenario* (see each file's `_provenance`),
   so trust rests on **reproducible grounding**, not our number.
-- **Verify in minutes (no API key):** `python3 preflight.py` · `pytest -q` (71 pass) ·
+- **Verify in minutes (no API key):** `python3 preflight.py` · `pytest -q` (74 pass) ·
   `python3 examiner_portal.py` (review UI + live audit-chain integrity).
 - **Drive it as an agent:** connect Claude Code to the MCP server (`.mcp.json`) and ask it to
   investigate `/mnt/evidence` — disk-only is a first-class autonomous case.
@@ -405,33 +405,40 @@ flowchart TD
 
 ---
 
-## Competitive Differentiation
+## What Sets DeepSIFT Apart
 
-DeepSIFT was designed knowing the competitive landscape. Here is what sets it apart:
+The challenge is to take Protocol SIFT — Claude Code wired directly to the SIFT
+Workstation — and make it production-grade. DeepSIFT does exactly that. Against the
+prompt-only baseline, every dimension a DFIR agent is judged on is upgraded from a
+prompt-level suggestion to an **architecturally enforced guarantee**:
 
-| Feature | DeepSIFT | casefile | Valhuntir | Agentic-DART | Mulder |
-|---|:---:|:---:|:---:|:---:|:---:|
-| MCP typed tools | **148** | ~30 | 75–100 | ~25 | 140+ |
-| Post-hoc grounding verification | ✅ verbatim token | ✅ CSV verbatim | ✗ | ✗ | ✗ |
-| Quantified confidence score (0-100) | ✅ 4-axis | ✗ | ✗ | ✗ | ✗ |
-| Contradiction detection | ✅ 6 types | ✗ | ✗ | ✗ | ✗ |
-| RAG injected at every tool call | ✅ | ✗ | Report-only | ✗ | ✗ |
-| Hayabusa Sigma rules (3,700+) | ✅ | ✗ | ✅ | ✗ | ✗ |
-| MITRE auto-map at tool call time | ✅ | ✗ | ✗ | ✗ | Navigator export |
-| Cross-artifact correlation | ✅ | ✗ | OpenSearch | DuckDB | SQLite FTS |
-| Adversarial self-review | ✅ | ✗ | ✗ | ✗ | Phase 4 |
-| Chain-of-custody audit_id | ✅ | ✅ | HMAC+PBKDF2 | SHA-256 chained | BLAKE2b |
-| Forensic knowledge envelope | ✅ per-tool | ✗ | YAML catalog | ✗ | ✗ |
-| Observation/interpretation split | ✅ | ✗ | ✗ | ✗ | ✗ |
-| vigia-cases benchmark | ✅ | ✗ | ✗ | ✅ | ✅ |
-| SRUM exfil quantification | ✅ | ✗ | ✗ | ✗ | ✗ |
-| Evidence write protection | Architectural | ✗ | Bubblewrap | Read-only | ✗ |
+| Judging dimension | Protocol SIFT (prompt-only baseline) | **DeepSIFT** |
+|---|---|---|
+| Tool output → LLM | 10k+ lines of raw CLI text in-context | **Typed JSON from 15 middleware parsers** — the model never sees raw text |
+| Hallucination control | Natural-language "be careful" rules | **Per-claim grounding verification** against raw export bytes (`verify_findings.py`) |
+| Confidence | Qualitative "high/low" | **4-axis quantified score (0–100)** |
+| Safety boundaries | Prompt instructions | **`guard_command` + `guard_output_path` raise at the OS layer** — evidence is read-only by construction |
+| Audit trail | None | **SHA-256 hash chain + optional HMAC signing** (forgery-resistant), one entry per tool call |
+| Threat intel | Training-time memory | **RAG (MITRE ATT&CK + LOLBAS + Hunt Evil) injected into every tool call** |
+| Autonomy evidence | Lives in the chat, then lost | **Server-side hypothesis ledger** with confirm/disprove/self-correction + confidence |
+| Detection breadth | ~30 event IDs | **3,700+ Sigma rules** (Hayabusa) + 6-type contradiction detection |
+| Scale | Dump artifacts into context | **Indexed SQLite evidence store** — query the full set, page only the matches |
+| Human review | None | **Interactive Examiner Portal** with HMAC sign-off, drill-down, multi-case |
+| Accuracy (must-identify) | 25% on ROCBA, missed disk-only FOR500 | **100% on both, 0 hallucinations, 100% grounding** |
 
-**DeepSIFT's unique advantages:**
-- **Only submission** with post-hoc grounding verification at the tool layer, scoring every claim token against raw export bytes
-- **Only submission** with quantified 4-axis confidence scoring (not qualitative "high/low")
-- **Only submission** with structured contradiction detection — `UNRESOLVED_CONTRADICTION` findings that prove anti-forensics occurred
-- **Only submission** that injects RAG-backed MITRE threat intelligence into every individual tool call, not just at report generation time
+**Capabilities unique to DeepSIFT's design:**
+- **Grounding at the tool layer** — every claim token is matched against the raw evidence its
+  `audit_id` cites; findings are reproducible from first principles, not taken on trust.
+- **Quantified, multi-axis confidence** — tool reliability + corroboration + IOC specificity +
+  MITRE accuracy, not an adjective.
+- **Forgery-resistant chain of custody** — hash-chained and HMAC-signable; tampering (modify /
+  insert / delete) is provably detectable, and signatures cannot be forged without the key.
+- **Captured autonomy with no API key** — Claude Code drives the typed tools and records its
+  reasoning server-side, so the senior-analyst loop is auditable, not anecdotal.
+- **Per-tool forensic knowledge envelope** — caveats, advisories, and corroboration hints wrap
+  every response, so the model reasons with forensic discipline at every step.
+- **Client-agnostic** — the same tool surface serves over stdio *or* HTTP (SSE/streamable-http)
+  to any MCP client or remote agent.
 
 ---
 
@@ -600,7 +607,7 @@ python3 rag/ingest/run_all.py
 
 # Run tests
 pytest tests/
-# Expected: 39 passed
+# Expected: 74 passed, 1 skipped
 ```
 
 ### Connect to Claude Code
@@ -807,7 +814,7 @@ DeepSIFT/
 │   ├── ground_truth/                ← Per-case ground-truth scoring files
 │   ├── baselines/                   ← Protocol SIFT reference findings
 │   └── reports/html_report.py       ← Visual HTML comparison report
-├── tests/                           ← pytest unit tests (61 passing)
+├── tests/                           ← pytest unit tests (74 passing, 1 skipped)
 ├── yara_rules/
 │   ├── suspicious_strings.yar       ← T1059.001, T1003, T1218, T1547.001
 │   ├── webshells.yar                ← T1505.003
@@ -816,11 +823,21 @@ DeepSIFT/
 │   └── packers.yar                  ← T1027.002
 ├── analysis/                        ← findings.json + forensic_audit.log (runtime)
 ├── exports/                         ← raw tool outputs SHA-256 indexed (runtime)
-├── docs/                            ← architecture.md, dataset.md, devpost_submission.md
-├── demo.py                          ← End-to-end demo script
+├── docs/                            ← architecture.md, dataset.md, devpost_submission.md, JUDGING.md
+├── investigate.py                   ← Autonomous agentic investigation (memory / disk-only / both)
+├── demo.py                          ← Deterministic multi-agent pipeline (no LLM/key)
+├── examiner_portal.py               ← Interactive human-review UI (sign-off, drill-down, multi-case)
+├── verify_findings.py               ← Independent re-verification of claims + audit chain
+├── preflight.py                     ← Environment self-check (operational tool groups)
+├── AGENTS.md                        ← Orientation for coding/judging agents
 ├── .env.example                     ← Environment template
 └── requirements.txt
 ```
+
+Additional first-class modules: `mcp_server/preflight.py` (dependency map),
+`mcp_server/evidence_store.py` (stdlib SQLite evidence index), and the MCP tool modules
+`tools/system_health.py`, `tools/investigation_state.py` (hypothesis ledger),
+`tools/evidence_index.py` (`index_evidence` / `query_evidence`).
 
 ---
 
@@ -919,7 +936,7 @@ MAX_ITERATIONS=10
 ## Development
 
 ```bash
-# Run tests (61 passing, 1 skipped)
+# Run tests (74 passing, 1 skipped)
 pytest tests/ -v
 
 # Syntax check

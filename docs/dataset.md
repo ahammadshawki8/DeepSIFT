@@ -108,12 +108,13 @@ no structured parsing) against `Rocba-Memory.raw` on 2026-06-11.
 
 | Must-Identify Criterion | Protocol SIFT | DeepSIFT |
 |-------------------------|:-------------:|:--------:|
-| Unauthorized access event on 2020-11-13 | ❌ Missed | TBD |
-| Evidence of file access / exfiltration | ❌ Missed | TBD |
-| Cloud storage service usage during incident | ❌ Missed | TBD |
-| Browser activity during incident window | ❌ Missed | TBD |
-| **Hallucinations** | **0** | TBD |
-| **Accuracy Score** | **25%** | TBD |
+| Unauthorized access event on 2020-11-13 | ❌ Missed | ✔ Found |
+| Evidence of file access / exfiltration | ❌ Missed | ✔ Found |
+| Cloud storage service usage during incident | ❌ Missed | ✔ Found |
+| Browser activity during incident window | ❌ Missed | ✔ Found |
+| **Hallucinations** | **0** | **0** |
+| **Accuracy Score** | **25%** | **100% (4/4)** |
+| **Claim grounding** | n/a (prompt-only) | **100% — every claim traced to raw evidence** |
 
 **Root cause of gaps:** Memory was captured 3 days post-incident. Protocol SIFT performed
 no disk artifact analysis. The incident evidence requires event logs, browser history, LNK

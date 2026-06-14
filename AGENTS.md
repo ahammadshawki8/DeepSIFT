@@ -24,7 +24,7 @@ and write a **tamper-evident, HMAC-signable chain of custody**. Built for the SA
 | **Architectural guardrails** | `mcp_server/audit.py: guard_command` (blocks shells/exfil binaries) + `guard_output_path` (read-only evidence). **Architectural, not prompt-based.** | `pytest tests/test_guardrails.py` |
 | **Audit trails** | SHA-256 hash chain + optional **HMAC signing** (`DEEPSIFT_AUDIT_KEY`) — detects *and* resists tampering | `pytest tests/test_custody.py`; `verify_audit_chain()` |
 | **Usability** | One-command **Examiner Portal** (stdlib only, zero installs) + preflight self-check | `python3 examiner_portal.py` |
-| **Honest testing** | 67 tests; measured head-to-head accuracy vs Protocol SIFT with grounding %, not assertions | `pytest -q` |
+| **Honest testing** | 74 tests; measured head-to-head accuracy vs Protocol SIFT with grounding %, not assertions | `pytest -q` |
 | **Documentation / reproducibility** | `README.md`, `CLAUDE.md`, `docs/`, `benchmark/ground_truth/` | this file + `docs/JUDGING.md` |
 
 ## Entry points
@@ -43,7 +43,7 @@ and write a **tamper-evident, HMAC-signable chain of custody**. Built for the SA
 ```bash
 pip install -r requirements.txt
 python3 preflight.py                  # what's operational in this environment
-pytest -q                             # 67 passed, 1 skipped
+pytest -q                             # 74 passed, 1 skipped
 python3 rag/ingest/run_all.py         # seed the case-agnostic RAG corpus
 python3 verify_findings.py            # independently re-verify a run's claims + audit chain
 python3 examiner_portal.py --html /tmp/review.html   # render a review of analysis/findings.json

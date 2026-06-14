@@ -5,8 +5,8 @@ Hayabusa applies 3,700+ community-vetted Sigma rules to Windows Event Logs
 and returns structured detections with severity levels and MITRE ATT&CK tags.
 
 This single tool multiplies DeepSIFT's event-log detection surface by orders of
-magnitude compared to the 30 event IDs filtered by parse_event_logs. It closes
-the gap against Valhuntir, Mulder, and VERDICT which all use Hayabusa or Sigma.
+magnitude beyond the curated event IDs filtered by parse_event_logs, bringing
+industry-standard Sigma coverage to the agent's reach.
 
 Installation on SIFT:
     sudo apt install hayabusa     # or download from
