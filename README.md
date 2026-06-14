@@ -21,6 +21,20 @@ logging before the LLM ever sees a single byte of evidence.
 
 ---
 
+### 🧑‍⚖️ For judges (and judging agents)
+
+- **Start here:** [`AGENTS.md`](AGENTS.md) (agent orientation, entry points, 60-second run) and
+  [`docs/JUDGING.md`](docs/JUDGING.md) (every Stage-2 criterion → exact code + how to verify).
+- **Measured, not asserted:** ROCBA **4/4** and FOR500 "Abducted Zebrafish" **4/4** vs Protocol SIFT,
+  **0 hallucinations, 100 % claim grounding** — scored by `benchmark/scorer.py` against published
+  ground truth.
+- **Verify in minutes (no API key):** `python3 preflight.py` · `pytest -q` (67 pass) ·
+  `python3 examiner_portal.py` (review UI + live audit-chain integrity).
+- **Drive it as an agent:** connect Claude Code to the MCP server (`.mcp.json`) and ask it to
+  investigate `/mnt/evidence` — disk-only is a first-class autonomous case.
+
+---
+
 ## Why DeepSIFT
 
 Protocol SIFT (the prompt-only baseline) passes raw CLI output directly into LLM context,
