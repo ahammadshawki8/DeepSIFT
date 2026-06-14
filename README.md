@@ -467,6 +467,13 @@ deleted entries). This directly answers the "usability" and "audit trails" judgi
 - `guard_output_path` blocks writes under evidence roots (`/cases/`, `/mnt/`, `/media/`).
 - Tool output is parsed to JSON before reaching the LLM; every call is logged with a SHA-256 of
   the raw output (`analysis/forensic_audit.log`).
+- **Tamper-evident *and* tamper-resistant audit chain.** Entries form a SHA-256 hash chain (any
+  modify/insert/delete breaks it). Set `DEEPSIFT_AUDIT_KEY` (held off the evidence host) to also
+  **HMAC-sign** the chain — an attacker who rewrites the entire log still cannot forge valid
+  signatures without the key. `verify_audit_chain()` reports both; the Examiner Portal shows it live.
+- **Token-scale by design.** The LLM only ever sees each tool's parsed, *capped* summary JSON; the
+  full raw evidence (up to MBs) goes to the on-disk audit record for grounding/custody, never into
+  the prompt — so a large artifact set never blows the context budget (`AGENT_TOOL_RESULT_CHARS`).
 
 ## Validated Results — ROCBA Case (Memory + Disk)
 

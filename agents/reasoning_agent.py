@@ -36,6 +36,12 @@ logger = logging.getLogger("deepsift.reasoning")
 
 MAX_ITERATIONS_DEFAULT = int(os.getenv("AGENT_MAX_ITERATIONS", "25"))
 DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+# Token-scale control: the LLM only ever sees the tool's PARSED summary JSON (already
+# capped by each parser, e.g. all_entries[:200]); the full raw evidence is folded into
+# the on-disk audit record for grounding/custody, never into the prompt. This cap bounds
+# the per-tool-result payload handed back to the model so a huge artifact set can't blow
+# the context budget. Tune with AGENT_TOOL_RESULT_CHARS.
+TOOL_RESULT_CHARS = int(os.getenv("AGENT_TOOL_RESULT_CHARS", "12000"))
 
 
 # ── Hypothesis bookkeeping ──────────────────────────────────────────────────────
@@ -243,7 +249,7 @@ class ReasoningAgent:
                 self._audit("tool_call", {"tool": name, "args": args,
                                           "result_preview": str(result)[:300], "iteration": i})
                 tool_results.append({"type": "tool_result", "tool_use_id": tid,
-                                     "content": str(result)[:12000]})
+                                     "content": str(result)[:TOOL_RESULT_CHARS]})
             messages.append({"role": "user", "content": tool_results})
 
         # Hit iteration cap without finishing — return best-effort partial.

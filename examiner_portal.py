@@ -140,8 +140,14 @@ def render_html(findings: dict, audit_entries: list[dict], chain: dict) -> str:
 
     # chain-integrity banner
     if chain.get("ok") is True:
+        if chain.get("hmac_ok") is True:
+            sig = "HMAC-signed chain verified (forgery-resistant)"
+        elif chain.get("hmac_signed") and chain.get("hmac_ok") is None:
+            sig = "HMAC-signed (set DEEPSIFT_AUDIT_KEY to verify signatures)"
+        else:
+            sig = "hash chain verified"
         chain_badge = (f"<span class='ok'>✔ INTACT</span> — {chain.get('entries', 0)} "
-                       f"audited tool calls, hash chain verified")
+                       f"audited tool calls, {sig}")
     elif chain.get("ok") is False:
         chain_badge = (f"<span class='bad'>✘ BROKEN</span> at entry "
                        f"{chain.get('broken_at')}: {_esc(chain.get('reason',''))}")

@@ -1,7 +1,9 @@
 """Chain-of-custody audit logging, evidence path guard, and tool-call counter."""
 import json
+import os
 import uuid
 import hashlib
+import hmac
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -183,6 +185,17 @@ def log_tool_execution(
     entry["entry_hash"] = _entry_hash(prev_hash, entry)
     _write_chain_head(analysis_dir, entry["entry_hash"])
 
+    # Optional HMAC signing: with an externally-held secret key (DEEPSIFT_AUDIT_KEY),
+    # the chain becomes forgery-resistant — an attacker who rewrites the log cannot
+    # recompute valid signatures without the key. Without a key, the SHA-256 chain
+    # above still detects naive modification/insertion/deletion.
+    key = _audit_key()
+    if key:
+        prev_hmac = _read_hmac_head(analysis_dir)
+        entry["prev_hmac"] = prev_hmac
+        entry["entry_hmac"] = _entry_hmac(key, prev_hmac, entry["entry_hash"])
+        _write_hmac_head(analysis_dir, entry["entry_hmac"])
+
     audit_log = analysis_dir / "forensic_audit.log"
     with open(audit_log, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
@@ -202,6 +215,40 @@ def _entry_hash(prev_hash: str, entry: dict) -> str:
         "raw_output_file", "result_summary", "error") if k in entry}
     payload = prev_hash + json.dumps(core, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _audit_key() -> bytes | None:
+    """Externally-held HMAC secret for forgery-resistant audit signing.
+
+    Read from DEEPSIFT_AUDIT_KEY at call time (so tests/operators can set it per run).
+    Returns None when unset — the SHA-256 hash chain still provides tamper *detection*;
+    the key adds tamper *resistance* (signatures can't be forged without it).
+    """
+    k = os.getenv("DEEPSIFT_AUDIT_KEY", "")
+    return k.encode("utf-8") if k else None
+
+
+def _entry_hmac(key: bytes, prev_hmac: str, entry_hash: str) -> str:
+    """HMAC-SHA256 chaining over (prev_hmac + this entry's hash)."""
+    return hmac.new(key, (prev_hmac + entry_hash).encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _hmac_head_file(analysis_dir):
+    return analysis_dir / ".audit_hmac_head"
+
+
+def _read_hmac_head(analysis_dir) -> str:
+    try:
+        return _hmac_head_file(analysis_dir).read_text().strip() or _GENESIS
+    except Exception:
+        return _GENESIS
+
+
+def _write_hmac_head(analysis_dir, head: str) -> None:
+    try:
+        _hmac_head_file(analysis_dir).write_text(head)
+    except Exception:
+        pass
 
 
 def _chain_head_file(analysis_dir):
@@ -239,26 +286,34 @@ def begin_case_audit() -> None:
             log.rename(analysis_dir / f"forensic_audit.{ts}.log.bak")
         except Exception:
             pass
-    head = _chain_head_file(analysis_dir)
-    try:
-        if head.exists():
-            head.unlink()
-    except Exception:
-        pass
+    for head in (_chain_head_file(analysis_dir), _hmac_head_file(analysis_dir)):
+        try:
+            if head.exists():
+                head.unlink()
+        except Exception:
+            pass
 
 
 def verify_audit_chain(audit_log_path: str = "") -> dict:
     """Recompute the hash chain over forensic_audit.log and report integrity.
 
-    Returns {"ok": bool, "entries": n, "broken_at": idx|None, "head": hash}.
+    Returns {"ok": bool, "entries": n, "broken_at": idx|None, "head": hash,
+             "hmac_signed": bool, "hmac_ok": bool|None}.
     A broken link means an entry was modified, inserted, or deleted after logging.
+    When DEEPSIFT_AUDIT_KEY is set AND the entries carry entry_hmac, the HMAC chain is
+    additionally verified (forgery-resistant): hmac_ok is True/False; otherwise None.
     """
     _, analysis_dir = _get_dirs()
     path = Path(audit_log_path) if audit_log_path else analysis_dir / "forensic_audit.log"
     if not path.exists():
-        return {"ok": True, "entries": 0, "broken_at": None, "head": _GENESIS}
+        return {"ok": True, "entries": 0, "broken_at": None, "head": _GENESIS,
+                "hmac_signed": False, "hmac_ok": None}
+    key = _audit_key()
     prev = _GENESIS
+    prev_hmac = _GENESIS
     n = 0
+    saw_hmac = False
+    hmac_ok = None
     with open(path, encoding="utf-8") as f:
         for i, line in enumerate(f):
             line = line.strip()
@@ -269,16 +324,29 @@ def verify_audit_chain(audit_log_path: str = "") -> dict:
                 e = json.loads(line)
             except Exception:
                 return {"ok": False, "entries": n, "broken_at": i, "head": prev,
-                        "reason": "unparseable entry"}
+                        "reason": "unparseable entry", "hmac_signed": saw_hmac, "hmac_ok": hmac_ok}
             # Back-compat: entries written before chaining have no chain fields.
             if "entry_hash" not in e:
                 continue
             expect = _entry_hash(e.get("prev_hash", _GENESIS), e)
             if e.get("prev_hash") != prev and prev != _GENESIS:
                 return {"ok": False, "entries": n, "broken_at": i, "head": prev,
-                        "reason": "prev_hash mismatch (entry inserted/deleted)"}
+                        "reason": "prev_hash mismatch (entry inserted/deleted)",
+                        "hmac_signed": saw_hmac, "hmac_ok": hmac_ok}
             if expect != e.get("entry_hash"):
                 return {"ok": False, "entries": n, "broken_at": i, "head": prev,
-                        "reason": "entry_hash mismatch (entry modified)"}
-            prev = e["entry_hash"]
-    return {"ok": True, "entries": n, "broken_at": None, "head": prev}
+                        "reason": "entry_hash mismatch (entry modified)",
+                        "hmac_signed": saw_hmac, "hmac_ok": hmac_ok}
+            # HMAC verification (only when signed entries exist and we hold the key).
+            if "entry_hmac" in e:
+                saw_hmac = True
+                if key is not None:
+                    want = _entry_hmac(key, e.get("prev_hmac", _GENESIS), e["entry_hash"])
+                    if not hmac.compare_digest(want, e["entry_hmac"]):
+                        return {"ok": False, "entries": n, "broken_at": i, "head": prev,
+                                "reason": "entry_hmac mismatch (forged/modified without key)",
+                                "hmac_signed": True, "hmac_ok": False}
+                    hmac_ok = True
+                    prev_hmac = e["entry_hmac"]
+    return {"ok": True, "entries": n, "broken_at": None, "head": prev,
+            "hmac_signed": saw_hmac, "hmac_ok": hmac_ok}

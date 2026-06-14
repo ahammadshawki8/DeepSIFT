@@ -45,3 +45,27 @@ def test_audit_hash_chain_detects_tamper(tmp_path, monkeypatch):
     lines[1] = json.dumps(e); log.write_text("\n".join(lines) + "\n")
     res = audit.verify_audit_chain(str(log))
     assert res["ok"] is False and res["broken_at"] == 1
+
+
+def test_audit_hmac_resists_forgery(tmp_path, monkeypatch):
+    """With an external key, an attacker who recomputes the SHA-256 hash chain still
+    cannot forge a valid HMAC — the tamper is caught."""
+    monkeypatch.setattr(audit, "_get_dirs", lambda: (tmp_path, tmp_path))
+    monkeypatch.setenv("DEEPSIFT_AUDIT_KEY", "externally-held-secret")
+    audit.begin_case_audit()
+    for i in range(3):
+        audit.log_tool_execution(f"tool{i}", [f"c{i}"], f"out{i}")
+    log = tmp_path / "forensic_audit.log"
+    ok = audit.verify_audit_chain(str(log))
+    assert ok["ok"] and ok["hmac_signed"] and ok["hmac_ok"] is True
+
+    # Attacker edits an entry and recomputes the hash chain forward (no key) ...
+    lines = log.read_text().splitlines()
+    e = json.loads(lines[1]); e["command"] = "EVIL"
+    e["entry_hash"] = audit._entry_hash(e["prev_hash"], e); lines[1] = json.dumps(e)
+    e2 = json.loads(lines[2]); e2["prev_hash"] = e["entry_hash"]
+    e2["entry_hash"] = audit._entry_hash(e2["prev_hash"], e2); lines[2] = json.dumps(e2)
+    log.write_text("\n".join(lines) + "\n")
+
+    res = audit.verify_audit_chain(str(log))
+    assert res["ok"] is False and "hmac" in res.get("reason", "").lower()
