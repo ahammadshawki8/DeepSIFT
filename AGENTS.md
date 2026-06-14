@@ -18,7 +18,7 @@ and write a **tamper-evident, HMAC-signable chain of custody**. Built for the SA
 
 | Judging criterion | Where DeepSIFT delivers it | How to verify |
 |---|---|---|
-| **Autonomous execution quality** | `agents/reasoning_agent.py` — hypothesis-driven loop that self-corrects on tool failure/contradiction; works on memory-only, **disk-only**, or both | `pytest tests/test_reasoning_agent.py` |
+| **Autonomous execution quality** | Two ways: (a) Claude Code drives the MCP server and records its reasoning via `record_hypothesis`/`update_hypothesis`/`finish_analysis` (no API key); (b) `agents/reasoning_agent.py` standalone loop. Both self-correct and work memory-only, **disk-only**, or both. | `pytest tests/test_reasoning_agent.py tests/test_investigation_state.py` |
 | **IR accuracy (traceable findings)** | Structured parsers + `parsers/grounding_verifier.py` (every claim → raw evidence) | `analysis/findings.json` → `grounding.grounding_score`; Examiner Portal |
 | **Depth of analysis** | 148 tools across memory/disk/registry/browser/cloud/network/anti-forensics + correlation | `python3 preflight.py` |
 | **Architectural guardrails** | `mcp_server/audit.py: guard_command` (blocks shells/exfil binaries) + `guard_output_path` (read-only evidence). **Architectural, not prompt-based.** | `pytest tests/test_guardrails.py` |

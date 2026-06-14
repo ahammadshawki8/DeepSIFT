@@ -217,6 +217,34 @@ def render_html(findings: dict, audit_entries: list[dict], chain: dict) -> str:
         chain_section = f"<h2>Attack chain</h2><ol class='list'>" + "".join(
             f"<li>{_esc(s)}</li>" for s in attack_chain) + "</ol>"
 
+    # Autonomy ledger: the agent's hypotheses, decisions, confidence, self-corrections.
+    hyps = findings.get("hypotheses") or []
+    hsum = findings.get("hypothesis_summary") or {}
+    hyp_section = ""
+    if hyps:
+        _scls = {"confirmed": "ok", "disproved": "bad", "inconclusive": "warn", "open": "muted"}
+        rows = []
+        for h in hyps:
+            st = h.get("status", "open")
+            ev = ", ".join(h.get("evidence", []) or []) or "—"
+            note = ""
+            hist = [e for e in h.get("history", []) if e.get("note")]
+            if hist:
+                note = _esc(hist[-1].get("note", ""))
+            rows.append(
+                f"<tr><td><b>{_esc(h.get('id',''))}</b></td><td>{_esc(h.get('statement',''))}</td>"
+                f"<td class='{_scls.get(st,'muted')}'>{_esc(st)}</td>"
+                f"<td>{_esc(h.get('confidence',0))}</td>"
+                f"<td><code>{_esc(ev)}</code></td><td class='muted'>{note}</td></tr>")
+        sc = hsum.get("self_corrections", 0)
+        hyp_section = (
+            f"<h2>Autonomous reasoning — hypothesis ledger "
+            f"({hsum.get('confirmed',0)} confirmed · {hsum.get('disproved',0)} disproved · "
+            f"{hsum.get('inconclusive',0)} inconclusive · {sc} self-correction{'s' if sc!=1 else ''})</h2>"
+            "<table><thead><tr><th>ID</th><th>Hypothesis</th><th>Status</th><th>Conf.</th>"
+            "<th>Evidence (audit_ids)</th><th>Last note</th></tr></thead><tbody>"
+            + "".join(rows) + "</tbody></table>")
+
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DeepSIFT Examiner Portal</title><style>
@@ -260,6 +288,7 @@ footer{{text-align:center;color:#9ca3af;font-size:.78rem;padding:24px}}
   <h2>Verdict</h2>
   <div class="panel summary">{_esc(summary)}</div>
   {('<h2>Interpretation</h2><div class="panel summary">'+_esc(interp)+'</div>') if interp else ''}
+  {hyp_section}
   {chain_section}
 
   <h2>Suspicious processes / tools ({len(procs)})</h2><div class="panel">{_ul(procs)}</div>

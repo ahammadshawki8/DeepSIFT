@@ -200,14 +200,22 @@ on or after November 13, 2020. Use DeepSIFT tools only.
 2. **Evidence is read-only** — never call tools that write to `/cases/`, `/mnt/`, or
    `/media/` paths. If a tool errors because it tries to write evidence, stop immediately.
 
-3. **Maximum 10 tool calls** — if you reach 10 calls without calling `finish_analysis`,
-   call it immediately with `confidence: "low"` and your best partial findings.
+3. **Reason like a senior analyst, and capture it.** Early on, call `record_hypothesis`
+   for each explicit, falsifiable theory. As you test one with the tool that would
+   confirm/disprove it, call `update_hypothesis(id, status, confidence, evidence_audit_ids)`
+   — confirm, disprove, or mark inconclusive, and pivot when evidence contradicts you
+   (self-correction). This makes your reasoning auditable, not just your tool calls.
 
-4. **Never fabricate** — if a tool returns no results, report "no results found".
+4. **Tool-call budget** — investigations run until the evidence is sufficient (tens of
+   calls is normal; the server allows up to `MAX_ITERATIONS`). When you have enough, call
+   `finish_analysis`; if you hit the budget, call it with your best partial findings and an
+   honest confidence. Don't pad with redundant calls.
+
+5. **Never fabricate** — if a tool returns no results, report "no results found".
    Do not invent process names, IP addresses, file names, or timestamps.
 
-5. **All findings must trace to a tool call** — every claim in your report must name
-   which tool returned it. "Found in `get_process_list` output" is required.
+6. **All findings must trace to a tool call** — every claim in your report must name
+   which tool returned it (its `audit_id`). "Found in `get_process_list` output" is required.
 
 ---
 
@@ -352,9 +360,13 @@ When you identify suspicious activity, map it to ATT&CK techniques:
   - **disk-only (first-class): `python3 investigate.py --evidence-mount /mnt/evidence`**
   - memory-only: `python3 investigate.py --image <mem.raw>`
   - (needs a real ANTHROPIC_API_KEY; or drive the same MCP tools directly from Claude Code.)
-- **Claude Code + MCP server (zero extra key).** Point Claude Code at the DeepSIFT MCP server
-  (`.mcp.json`) and ask it to investigate `/mnt/evidence` — Claude Code is the agent; every call
-  goes through the typed, audited, guard-railed tools. This is how a judge can drive it directly.
+- **Claude Code + MCP server (zero extra key) — the PRIMARY engine.** Point Claude Code at the
+  DeepSIFT MCP server (`.mcp.json`) and ask it to investigate `/mnt/evidence` — Claude Code IS the
+  agent; every call goes through the typed, audited, guard-railed tools. Using `record_hypothesis` /
+  `update_hypothesis` / `finish_analysis`, the session leaves the same auditable autonomy trail a
+  standalone agent would (hypothesis ledger with confirm/disprove/self-correct + confidence, the
+  hash-chained tool calls, grounded findings) — proving senior-analyst autonomy with **no API key**.
+  This is how a judge drives and verifies it directly.
 - **Deterministic:** `python3 demo.py ...` — fixed pipeline, no LLM, for reproducible benchmarks.
 - **Examiner Portal (human review):** `python3 examiner_portal.py` serves a read-only review UI
   (stdlib only, zero deps) at http://127.0.0.1:8420 — verdict, findings, evidence-grounding, and

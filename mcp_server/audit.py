@@ -286,7 +286,8 @@ def begin_case_audit() -> None:
             log.rename(analysis_dir / f"forensic_audit.{ts}.log.bak")
         except Exception:
             pass
-    for head in (_chain_head_file(analysis_dir), _hmac_head_file(analysis_dir)):
+    for head in (_chain_head_file(analysis_dir), _hmac_head_file(analysis_dir),
+                 analysis_dir / "hypotheses.json"):
         try:
             if head.exists():
                 head.unlink()

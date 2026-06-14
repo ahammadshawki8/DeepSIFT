@@ -634,6 +634,15 @@ def register_volatility_tools(mcp, rag=None):
             grounding_score=grounding["grounding_score"],
         )
 
+        # Fold in the autonomy ledger (hypotheses + self-corrections) if the agent
+        # recorded any via record_hypothesis/update_hypothesis — this is the captured
+        # evidence of senior-analyst reasoning when Claude Code itself is the agent.
+        try:
+            from mcp_server.tools.investigation_state import load_hypotheses, hypothesis_summary
+            _hyps = load_hypotheses()
+        except Exception:
+            _hyps = []
+
         findings = {
             "observation": observation,
             "interpretation": interpretation,
@@ -645,6 +654,8 @@ def register_volatility_tools(mcp, rag=None):
             "confidence_qualitative": confidence,
             "confidence_score": confidence_score,
             "grounding": grounding,
+            "hypotheses": _hyps,
+            "hypothesis_summary": hypothesis_summary(_hyps) if _hyps else {},
             "audit_ids": audit_ids,
             "tool_calls_used": tool_count,
             "status": "complete",
