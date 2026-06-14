@@ -332,7 +332,7 @@ When you identify suspicious activity, map it to ATT&CK techniques:
 - [x] **Case-agnostic offline corpus** (`rag/ingest/knowledge_corpus.py`) — MITRE catalog + LOLBAS + Hunt Evil baseline; NO case IOCs auto-loaded
 - [x] **Per-case IOC ingest** (`rag/ingest/case_history.py`, opt-in) — load a case's own IOCs only for that investigation, so one case never biases another. `rag/ingest/rocba_iocs.py` is an example pack (opt-in via `--load-rocba`).
 - [x] **rag/ingest/run_all.py** — one-command RAG seeding script
-- [x] Benchmark runner and scorer
+- [x] Benchmark scorer + case-agnostic comparison (`benchmark/compare.py`)
 - [x] **benchmark/vigia_runner.py** — standardized multi-case benchmark (vigia-cases)
 - [x] **benchmark/reports/html_report.py** — rich visual HTML comparison (color-coded findings, MITRE badges, side-by-side diff)
 - [x] LangGraph multi-agent orchestrator — memory + disk + network + browser agents

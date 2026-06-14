@@ -893,7 +893,6 @@ DeepSIFT/
 │   ├── orchestrator.py              ← LangGraph multi-agent coordination (deterministic pipeline)
 │   └── reasoning_agent.py           ← Agentic LLM reasoning loop over the typed tools
 ├── benchmark/
-│   ├── runner.py                    ← Benchmark execution (Protocol SIFT vs DeepSIFT)
 │   ├── scorer.py                    ← must-identify / hallucination scoring vs ground truth
 │   ├── compare.py                   ← Case-agnostic side-by-side comparison + HTML report
 │   ├── vigia_runner.py              ← vigia-cases standardized multi-case benchmark

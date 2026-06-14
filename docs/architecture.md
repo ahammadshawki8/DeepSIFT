@@ -347,7 +347,7 @@ Hallucination rate: HIGH           "anomalies": ["Wrong parent"],
 | `rag/ingest/mitre_attack.py` | Downloads and indexes MITRE ATT&CK into ChromaDB |
 | `rag/ingest/run_all.py` | One-command RAG initialization |
 | `agents/orchestrator.py` | LangGraph StateGraph multi-agent orchestrator |
-| `benchmark/runner.py` | Runs Protocol SIFT baseline + DeepSIFT, scores both |
+| `benchmark/compare.py` | Case-agnostic side-by-side scoring (Protocol SIFT vs DeepSIFT) + HTML report |
 | `benchmark/scorer.py` | Scores findings vs ground truth, detects hallucinations |
 | `benchmark/vigia_runner.py` | vigia-cases standardized multi-case benchmark |
 | `benchmark/ground_truth/rocba_ground_truth.json` | ROCBA case answer key + Protocol SIFT baseline score |
