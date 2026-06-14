@@ -1,6 +1,12 @@
 {
  "case_id": "VANKO-2016",
  "case_name": "The Case of the Abducted Zebrafish (FOR500)",
+ "_provenance": {
+  "evidence_source": "Organizer-provided SANS FOR500 case image (physical Surface 3 / CyLR triage).",
+  "ground_truth_basis": "DERIVED from the case scenario's explicitly stated facts — the \\StarkResearch\\Level 5-8 Classified paths, the 2016-06-22..30 window, the zebrafish / cell-regeneration / DNA-splice research topics, and the three investigative questions. This is NOT an official artifact answer key (USB serials / exact filenames / confirmed channel were not published).",
+  "how_to_trust_this": "Do not trust the SCORE on faith — verify the EVIDENCE. Every DeepSIFT claim is grounded per-token against the cited raw tool output and recorded in a hash-chained (optionally HMAC-signed) audit log. Run `python3 verify_findings.py` to independently re-confirm that each claim traces to intact, audited evidence. Scoring here is identical for Protocol SIFT and DeepSIFT.",
+  "scoring_is_content_based": "must_identify uses content indicator groups over the findings' text values; prose alone may satisfy a criterion only where the brief states the fact."
+ },
  "incident_window": "2016-06-22 .. 2016-06-30",
  "system": "Microsoft Surface 3 — Windows 10 Professional",
  "subject": "Anthony Vanko (vanko), Biochemical Engineer, Stark Enterprises DC R&D",

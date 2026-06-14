@@ -1,6 +1,11 @@
 {
  "case_id": "ROCBA-2020",
  "case_name": "Fred Rocba Break-In and IP Theft",
+ "_provenance": {
+  "evidence_source": "Organizer-provided SANS FOR508 ROCBA case (Rocba-Memory.raw + rocba-cdrive.e01).",
+  "ground_truth_basis": "DERIVED from the case scenario's explicitly stated facts (the 2020-11-13 unauthorized-access window, the SRL project files, the exfiltration channel). NOT an official artifact answer key.",
+  "how_to_trust_this": "Verify the EVIDENCE, not the score: every DeepSIFT claim is grounded per-token against cited raw tool output and recorded in a hash-chained (optionally HMAC-signed) audit log. Run `python3 verify_findings.py` to re-confirm independently. Identical scoring for Protocol SIFT and DeepSIFT."
+ },
  "incident_date": "2020-11-13",
  "system": "Windows 10 x64 Build 19041 (20H1) \u2014 Surface Laptop",
  "timezone": "EST (UTC-5)",

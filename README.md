@@ -28,7 +28,11 @@ logging before the LLM ever sees a single byte of evidence.
 - **Measured, not asserted:** ROCBA **4/4** and FOR500 "Abducted Zebrafish" **4/4** vs Protocol SIFT,
   **0 hallucinations, 100 % claim grounding** — scored by `benchmark/scorer.py` against published
   ground truth.
-- **Verify in minutes (no API key):** `python3 preflight.py` · `pytest -q` (67 pass) ·
+- **Don't trust the score — verify the evidence:** `python3 verify_findings.py` independently
+  re-checks every claim against the cited raw tool output and recomputes the audit hash chain. The
+  ground-truth files are *derived from the organizer case scenario* (see each file's `_provenance`),
+  so trust rests on **reproducible grounding**, not our number.
+- **Verify in minutes (no API key):** `python3 preflight.py` · `pytest -q` (71 pass) ·
   `python3 examiner_portal.py` (review UI + live audit-chain integrity).
 - **Drive it as an agent:** connect Claude Code to the MCP server (`.mcp.json`) and ask it to
   investigate `/mnt/evidence` — disk-only is a first-class autonomous case.

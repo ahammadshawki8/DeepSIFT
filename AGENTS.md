@@ -19,7 +19,7 @@ and write a **tamper-evident, HMAC-signable chain of custody**. Built for the SA
 | Judging criterion | Where DeepSIFT delivers it | How to verify |
 |---|---|---|
 | **Autonomous execution quality** | Two ways: (a) Claude Code drives the MCP server and records its reasoning via `record_hypothesis`/`update_hypothesis`/`finish_analysis` (no API key); (b) `agents/reasoning_agent.py` standalone loop. Both self-correct and work memory-only, **disk-only**, or both. | `pytest tests/test_reasoning_agent.py tests/test_investigation_state.py` |
-| **IR accuracy (traceable findings)** | Structured parsers + `parsers/grounding_verifier.py` (every claim → raw evidence) | `analysis/findings.json` → `grounding.grounding_score`; Examiner Portal |
+| **IR accuracy (traceable findings)** | Structured parsers + `parsers/grounding_verifier.py` (every claim → raw evidence). Ground truth is *derived from the organizer case scenario* (`_provenance` in each ground-truth file); trust rests on reproducible grounding, not our score. | `python3 verify_findings.py` (re-checks claims + recomputes the chain — trust the evidence, not the number) |
 | **Depth of analysis** | 148 tools across memory/disk/registry/browser/cloud/network/anti-forensics + correlation | `python3 preflight.py` |
 | **Architectural guardrails** | `mcp_server/audit.py: guard_command` (blocks shells/exfil binaries) + `guard_output_path` (read-only evidence). **Architectural, not prompt-based.** | `pytest tests/test_guardrails.py` |
 | **Audit trails** | SHA-256 hash chain + optional **HMAC signing** (`DEEPSIFT_AUDIT_KEY`) — detects *and* resists tampering | `pytest tests/test_custody.py`; `verify_audit_chain()` |
@@ -45,6 +45,7 @@ pip install -r requirements.txt
 python3 preflight.py                  # what's operational in this environment
 pytest -q                             # 67 passed, 1 skipped
 python3 rag/ingest/run_all.py         # seed the case-agnostic RAG corpus
+python3 verify_findings.py            # independently re-verify a run's claims + audit chain
 python3 examiner_portal.py --html /tmp/review.html   # render a review of analysis/findings.json
 ```
 
