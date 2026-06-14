@@ -496,9 +496,12 @@ This directly answers the "usability" and "audit trails" judging criteria.
   modify/insert/delete breaks it). Set `DEEPSIFT_AUDIT_KEY` (held off the evidence host) to also
   **HMAC-sign** the chain — an attacker who rewrites the entire log still cannot forge valid
   signatures without the key. `verify_audit_chain()` reports both; the Examiner Portal shows it live.
-- **Token-scale by design.** The LLM only ever sees each tool's parsed, *capped* summary JSON; the
-  full raw evidence (up to MBs) goes to the on-disk audit record for grounding/custody, never into
-  the prompt — so a large artifact set never blows the context budget (`AGENT_TOOL_RESULT_CHARS`).
+- **Token-scale by design + a queryable store.** The LLM only ever sees each tool's parsed, *capped*
+  summary JSON; the full raw evidence (up to MBs) goes to the on-disk audit record, never into the
+  prompt (`AGENT_TOOL_RESULT_CHARS`). For full-disk scale, `index_evidence` ingests the *complete*
+  artifact rows (the EZ tools' exports/*.csv) into a stdlib **SQLite** store and `query_evidence`
+  returns only the matching subset — reach a 100k-row MFT or full shellbag set without dumping it.
+  A dependency-light alternative to standing up OpenSearch.
 
 ## Validated Results — ROCBA Case (Memory + Disk)
 

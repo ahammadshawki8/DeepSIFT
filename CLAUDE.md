@@ -383,10 +383,12 @@ When you identify suspicious activity, map it to ATT&CK techniques:
   any modify/insert/delete breaks it — `verify_audit_chain()`). Set `DEEPSIFT_AUDIT_KEY` (held off
   the evidence host) to additionally **HMAC-sign** the chain: an attacker who rewrites the whole log
   cannot forge valid signatures without the key. The Examiner Portal shows the live verdict.
-- **Token-scale by design:** the LLM only ever receives each tool's PARSED, capped summary JSON
-  (e.g. `all_entries[:200]`); the full raw evidence (up to MBs) is folded into the on-disk audit
-  record for grounding/custody, never into the prompt. `AGENT_TOOL_RESULT_CHARS` bounds the
-  per-result payload to the model, so a large artifact set never blows the context budget.
+- **Token-scale by design + queryable store:** the LLM only ever receives each tool's PARSED, capped
+  summary JSON (e.g. `all_entries[:200]`); the full raw evidence is folded into the on-disk audit
+  record, never the prompt (`AGENT_TOOL_RESULT_CHARS` bounds per-result size). For full-disk scale,
+  `index_evidence` ingests the COMPLETE artifact rows (EZ tools' `exports/*.csv`) into a stdlib
+  SQLite store and `query_evidence` returns only matching rows — reach a 100k-row MFT / full
+  shellbag set without dumping it. Dependency-light alternative to OpenSearch.
 
 ### EZ Tools / registry hardening (production-critical)
 - **Cross-case isolation**: every EZ Tools wrapper clears its own CSV output dir before running
