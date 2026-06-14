@@ -27,8 +27,25 @@ def _badge(tid: str, name: str) -> str:
 # technique_id -> human name, harvested from the same rule table the auto-mapper uses,
 # so a findings list of bare IDs (['T1039', ...]) still renders named badges instead of
 # the unhelpful "T1039 T1039".
+# Common technique names not necessarily present in the auto-mapper rule table, so a
+# findings list of bare IDs still renders a readable label rather than "T#### T####".
+_COMMON_TECHNIQUE_NAMES = {
+    "T1005": "Data from Local System",
+    "T1039": "Data from Network Shared Drive",
+    "T1074.001": "Local Data Staging",
+    "T1135": "Network Share Discovery",
+    "T1560.001": "Archive via Utility",
+    "T1567.002": "Exfiltration to Cloud Storage",
+    "T1052.001": "Exfiltration over USB",
+    "T1090.003": "Multi-hop Proxy",
+    "T1070.004": "Indicator Removal: File Deletion",
+    "T1083": "File and Directory Discovery",
+    "T1036": "Masquerading",
+}
+
+
 def _build_technique_names() -> dict[str, str]:
-    names: dict[str, str] = {}
+    names: dict[str, str] = dict(_COMMON_TECHNIQUE_NAMES)
     try:
         import mcp_server.parsers.mitre_auto_map as mm
         for attr in dir(mm):

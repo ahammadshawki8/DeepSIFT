@@ -28,7 +28,7 @@ rag/data/
 # Runtime outputs (case-specific, not for version control)
 exports/
 analysis/
-reports/
+/reports/
 docs/*.html
 
 # Test cache
