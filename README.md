@@ -466,16 +466,20 @@ A reviewer or judge can inspect a completed investigation in one command — **n
 (Python standard library only):
 
 ```bash
-python3 examiner_portal.py            # serve  → http://127.0.0.1:8420
+python3 examiner_portal.py                       # serve  → http://127.0.0.1:8420
+python3 examiner_portal.py --cases-root /cases   # multi-case picker across many investigations
 python3 examiner_portal.py --html reports/examiner_review.html   # or a static file
 ```
 
-The portal shows the **verdict + confidence**, every **finding** (suspicious processes, exfil
-IOCs, named MITRE ATT&CK badges, timeline, files accessed), the **evidence-grounding** result
-(which claims were verified against raw tool output, and any that were *not*), and the full
-**chain of custody** — every audited tool call with the SHA-256 of its raw output plus a
-**recomputed hash-chain integrity verdict that detects any tampering** (modified, inserted, or
-deleted entries). This directly answers the "usability" and "audit trails" judging criteria.
+The portal shows the **verdict + confidence**, the **autonomous-reasoning hypothesis ledger**
+(confirmed/disproved/self-corrections), every **finding** (suspicious processes, exfil IOCs, named
+MITRE ATT&CK badges, timeline, files accessed), the **evidence-grounding** result (verified vs
+unverified claims), and the full **chain of custody** — every audited tool call with the SHA-256 of
+its raw output plus a **recomputed hash-chain integrity verdict that detects tampering**. It is
+**interactive**: click any audit row to **drill into the raw evidence** (with a live SHA-256 match
+check), browse **multiple cases**, and perform an **examiner sign-off** — approve/reject each finding
+and produce an **HMAC-signed, tamper-evident manifest** binding the findings hash + audit-chain head.
+This directly answers the "usability" and "audit trails" judging criteria.
 
 **Architectural guardrails (enforced in code, not prompts):**
 - `mcp_server.audit.guard_command` blocks destructive/exfiltration binaries (`rm`, `dd`, `shred`,

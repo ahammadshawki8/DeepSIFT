@@ -368,10 +368,11 @@ When you identify suspicious activity, map it to ATT&CK techniques:
   hash-chained tool calls, grounded findings) — proving senior-analyst autonomy with **no API key**.
   This is how a judge drives and verifies it directly.
 - **Deterministic:** `python3 demo.py ...` — fixed pipeline, no LLM, for reproducible benchmarks.
-- **Examiner Portal (human review):** `python3 examiner_portal.py` serves a read-only review UI
-  (stdlib only, zero deps) at http://127.0.0.1:8420 — verdict, findings, evidence-grounding, and
-  the full chain of custody with a recomputed hash-chain integrity verdict (tamper detection).
-  `--html <path>` writes a static self-contained report instead.
+- **Examiner Portal (interactive human review):** `python3 examiner_portal.py` serves a review UI
+  (stdlib only, zero deps) at http://127.0.0.1:8420 — verdict, hypothesis ledger, findings,
+  evidence-grounding, and the full chain of custody with a recomputed hash-chain integrity verdict.
+  Interactive: drill into raw evidence (live SHA-256 check), multi-case picker (`--cases-root`), and
+  examiner sign-off that writes an HMAC-signed manifest. `--html <path>` writes a static report.
 
 ### Guardrails (architectural, enforced in code)
 - `mcp_server.audit.guard_command` blocks destructive/exfil binaries + shell redirection at every

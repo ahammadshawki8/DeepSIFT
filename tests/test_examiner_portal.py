@@ -35,6 +35,40 @@ def test_render_html_contains_core_sections():
     assert "observable claims traced" in h       # grounding banner
 
 
+def test_interactive_signoff_and_raw_drilldown(tmp_path, monkeypatch):
+    """Examiner sign-off produces a verifiable HMAC manifest; raw drill-down confirms
+    the recorded SHA-256 of the cited evidence."""
+    monkeypatch.setenv("ANALYSIS_DIR", str(tmp_path))
+    monkeypatch.setenv("EXPORTS_DIR", str(tmp_path / "exports"))
+    import importlib
+    import mcp_server.config as cfg
+    import mcp_server.audit as audit
+    importlib.reload(cfg)
+    importlib.reload(audit)
+    importlib.reload(ep)
+
+    audit.begin_case_audit()
+    e = audit.log_tool_execution("parse_userassist", ["RECmd"], "ValueData VeraCrypt.exe run 6")
+    (tmp_path / "findings.json").write_text(json.dumps({
+        "summary": "x", "suspicious_processes": ["VeraCrypt.exe"],
+        "network_iocs": ["1.2.3.4"], "audit_ids": [e["audit_id"]]}), encoding="utf-8")
+
+    form = {"examiner": ["Judge"], "passphrase": ["pw"], "count": ["2"],
+            "cat0": ["process"], "item0": ["VeraCrypt.exe"], "d0": ["approved"],
+            "cat1": ["network_ioc"], "item1": ["1.2.3.4"], "d1": ["rejected"]}
+    res = ep.do_signoff(tmp_path, form)
+    assert res["ok"] is True and res["approved"] == 1 and res["rejected"] == 1
+    assert (tmp_path / "case_manifest.signed.json").exists()
+    # missing passphrase is rejected
+    assert ep.do_signoff(tmp_path, {"examiner": ["J"], "count": ["0"]})["ok"] is False
+
+    raw = ep.render_raw_page("", e["audit_id"], tmp_path / "forensic_audit.log")
+    assert "matches recorded" in raw and "VeraCrypt.exe" in raw
+
+    cases = ep.discover_cases(None, tmp_path)
+    assert len(cases) == 1
+
+
 def test_chain_intact_and_tamper_detection(tmp_path, monkeypatch):
     # Build a real, valid hash chain using the audit logger, then tamper it.
     monkeypatch.setenv("ANALYSIS_DIR", str(tmp_path))
