@@ -439,6 +439,23 @@ DeepSIFT runs three ways:
 - **`demo.py` — deterministic pipeline**: fixed multi-agent sequence (no LLM/key) for reproducible,
   scriptable benchmark runs.
 
+### Examiner Portal (human review — zero dependencies)
+
+A reviewer or judge can inspect a completed investigation in one command — **no pip installs**
+(Python standard library only):
+
+```bash
+python3 examiner_portal.py            # serve  → http://127.0.0.1:8420
+python3 examiner_portal.py --html reports/examiner_review.html   # or a static file
+```
+
+The portal shows the **verdict + confidence**, every **finding** (suspicious processes, exfil
+IOCs, named MITRE ATT&CK badges, timeline, files accessed), the **evidence-grounding** result
+(which claims were verified against raw tool output, and any that were *not*), and the full
+**chain of custody** — every audited tool call with the SHA-256 of its raw output plus a
+**recomputed hash-chain integrity verdict that detects any tampering** (modified, inserted, or
+deleted entries). This directly answers the "usability" and "audit trails" judging criteria.
+
 **Architectural guardrails (enforced in code, not prompts):**
 - `mcp_server.audit.guard_command` blocks destructive/exfiltration binaries (`rm`, `dd`, `shred`,
   `mkfs`, `wget`, `curl`, `scp`, `ssh`, `nc`, shells…) and shell redirection/chaining tokens at

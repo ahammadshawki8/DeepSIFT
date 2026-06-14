@@ -356,6 +356,10 @@ When you identify suspicious activity, map it to ATT&CK techniques:
   (`.mcp.json`) and ask it to investigate `/mnt/evidence` — Claude Code is the agent; every call
   goes through the typed, audited, guard-railed tools. This is how a judge can drive it directly.
 - **Deterministic:** `python3 demo.py ...` — fixed pipeline, no LLM, for reproducible benchmarks.
+- **Examiner Portal (human review):** `python3 examiner_portal.py` serves a read-only review UI
+  (stdlib only, zero deps) at http://127.0.0.1:8420 — verdict, findings, evidence-grounding, and
+  the full chain of custody with a recomputed hash-chain integrity verdict (tamper detection).
+  `--html <path>` writes a static self-contained report instead.
 
 ### Guardrails (architectural, enforced in code)
 - `mcp_server.audit.guard_command` blocks destructive/exfil binaries + shell redirection at every
