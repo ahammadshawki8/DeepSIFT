@@ -9,6 +9,29 @@ genuine** (the analytical reasoning is recorded via the hypothesis-ledger tools)
 |---|---|---|---|
 | **Vanko — FOR500 (disk-only)** | [`vanko_findings.json`](vanko_findings.json) | [`vanko_examiner_report.html`](vanko_examiner_report.html) | 4/4 must-identify · 0 hallucinations · 100% grounding |
 | **ROCBA — FOR508 (memory + disk)** | [`rocba_findings.json`](rocba_findings.json) | [`rocba_examiner_report.html`](rocba_examiner_report.html) | 4/4 must-identify · 0 hallucinations · 100% grounding |
+| **ROCBA — agentic run (self-correction)** | [`rocba_agentic_findings.json`](rocba_agentic_findings.json) | — | hypothesis **H1 disproved → pivot to disk** |
+
+### The self-correction exhibit
+[`rocba_agentic_findings.json`](rocba_agentic_findings.json) is the *Claude Code + DeepSIFT MCP*
+agentic run. Its `hypotheses` array shows a real mid-investigation pivot: **H1 "Memory-resident
+malware present" is `disproved`** — the agent recognized the `malfind` hits were Teams/svchost
+*volume* FPs on a capture taken **3 days post-incident**, then **pivoted to disk** and confirmed the
+F:/USB exfiltration (H2) and the SDelete anti-forensics search (H3). That is the "recognize when
+something doesn't add up and change approach" behavior, recorded with confidence + evidence. See
+[`docs/accuracy_report.md`](../accuracy_report.md) §5a.
+
+### Reproducible chain of custody (committed)
+Both runs ship with their **real** audit trails in `docs/sample/rocba_analysis/` and
+`docs/sample/vanko_analysis/` — hash-chained tool logs pointing to the raw export files.
+Run either verify command from the repo root:
+
+```bash
+python3 verify_findings.py --findings docs/sample/rocba_findings.json --analysis-dir docs/sample/rocba_analysis
+# grounding 100% (27/27 observable claims), chain INTACT, OVERALL ✔ VERIFIED
+
+python3 verify_findings.py --findings docs/sample/vanko_findings.json --analysis-dir docs/sample/vanko_analysis
+# grounding 100% (13/13 observable claims), chain INTACT, OVERALL ✔ VERIFIED
+```
 
 Each `findings.json` contains the verdict, the **hypothesis ledger** (every hypothesis with
 confirm/disprove/confidence + the `audit_id`s that decided it), the suspicious indicators,

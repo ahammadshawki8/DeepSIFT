@@ -68,6 +68,19 @@ def register_investigation_state_tools(mcp, rag=None):
             mitre_techniques: Optional ATT&CK IDs this hypothesis maps to.
         """
         hyps = load_hypotheses()
+        # Idempotent: re-recording the same statement returns the existing hypothesis
+        # instead of appending a duplicate. (A long Claude-Code session that restates its
+        # hypotheses would otherwise produce H1..H4 then identical H5..H8 — noise that
+        # looks like a scripted ledger rather than one genuine investigative arc.)
+        _norm = (statement or "").strip().lower()
+        existing = next((h for h in hyps if h.get("statement", "").strip().lower() == _norm), None)
+        if existing is not None:
+            return wrap_response("record_hypothesis",
+                                 {"id": existing["id"], "statement": existing["statement"],
+                                  "status": existing.get("status", "open"),
+                                  "note": "Hypothesis already recorded (idempotent) — update it with "
+                                          "update_hypothesis(id, status, confidence, evidence_audit_ids)."},
+                                 get_last_audit_id())
         hid = f"H{len(hyps) + 1}"
         now = datetime.now(timezone.utc).isoformat()
         h = {

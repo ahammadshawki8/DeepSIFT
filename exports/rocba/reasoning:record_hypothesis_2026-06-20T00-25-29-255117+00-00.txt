@@ -1,0 +1,1 @@
+{"id": "H4", "statement": "The memory image is post-incident and the attacker process/connection is no longer resident; disk artifacts carry the primary evidence", "rationale": "If memory shows only clean system processes with no injected code or suspicious connections, the incident was prior to capture; disk artifacts will be the primary forensic record"}

@@ -57,3 +57,20 @@ def test_record_and_update_via_tools(tmp_path, monkeypatch):
     bad = json.loads(run("update_hypothesis", {"hypothesis_id": "H9", "status": "confirmed",
                                                "confidence": 0.5}))
     assert "error" in bad
+
+
+def test_record_hypothesis_is_idempotent(tmp_path, monkeypatch):
+    """Re-recording the same statement must NOT append a duplicate (which would make a
+    genuine single-arc ledger look like a scripted one). Regression guard."""
+    _fresh(monkeypatch, tmp_path)
+    from agents.reasoning_agent import build_mcp_tool_runner
+    _schemas, run = build_mcp_tool_runner(core_only=False)
+
+    a = json.loads(run("record_hypothesis", {"statement": "Data copied to removable USB"}))
+    b = json.loads(run("record_hypothesis", {"statement": "  data copied to REMOVABLE usb "}))  # same, noisy
+    assert a["id"] == "H1" and b["id"] == "H1"          # same id returned, no H2 created
+    state = json.loads(run("get_investigation_state", {}))
+    assert state["summary"]["total"] == 1
+    # a genuinely different hypothesis still gets a new id
+    c = json.loads(run("record_hypothesis", {"statement": "Anti-forensic tooling was used"}))
+    assert c["id"] == "H2"

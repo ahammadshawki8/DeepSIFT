@@ -40,9 +40,9 @@ def guard_output_path(path: str) -> str:
 # Binaries that can destroy, exfiltrate, or alter evidence/state. The MCP server
 # must NEVER run these — enforced here in code, not via LLM prompt instructions.
 _FORBIDDEN_BINARIES = {
-    "rm", "rmdir", "del", "dd", "shred", "mkfs", "fdisk", "parted", "wipefs",
-    "format", "mv", "cp", "chmod", "chown", "truncate", "tee", "ln",
-    "wget", "curl", "scp", "sftp", "ssh", "nc", "ncat", "netcat", "telnet",
+    "rm", "rmdir", "del", "dd", "shred", "mkfs", "mke2fs", "mkswap", "blkdiscard",
+    "fdisk", "parted", "wipefs", "format", "mv", "cp", "chmod", "chown", "truncate",
+    "tee", "ln", "wget", "curl", "scp", "sftp", "ssh", "nc", "ncat", "netcat", "telnet",
     "ftp", "rsync", "bash", "sh", "zsh", "powershell", "pwsh", "cmd",
     "kill", "pkill", "mount", "umount",
     "useradd", "passwd", "iptables", "systemctl", "crontab", "at",
@@ -72,7 +72,11 @@ def guard_command(cmd) -> None:
     exe = Path(str(cmd[0])).name.lower()
     if exe.endswith(".exe"):
         exe = exe[:-4]
-    if exe in _FORBIDDEN_BINARIES:
+    # Also test the pre-dot stem so suffixed variants of a forbidden binary cannot slip
+    # through: mkfs.ext4 / mkfs.xfs / mkfs.vfat all reduce to the forbidden 'mkfs'. (The
+    # bypass test suite caught mkfs.ext4 passing when only the full basename was checked.)
+    stem = exe.split(".", 1)[0]
+    if exe in _FORBIDDEN_BINARIES or stem in _FORBIDDEN_BINARIES:
         raise PermissionError(
             f"Refusing to execute forbidden binary {exe!r} (architectural safety "
             f"enforcement). The DeepSIFT MCP server cannot run destructive, "

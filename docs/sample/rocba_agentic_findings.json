@@ -1,0 +1,77 @@
+{
+  "image_path": "/cases/ROCBA-BASELINE/Rocba-Memory/Rocba-Memory.raw",
+  "evidence_mount": "/mnt/evidence",
+  "mode": "agentic-reasoning (Claude Code + DeepSIFT MCP, Pro-covered)",
+  "summary": "Confirmed insider IP theft. Memory (captured 2020-11-16, 3 days post-incident) showed no resident malware (2186 procs, 103 baseline/volume anomalies, no injected PE) \u2014 so the agent pivoted to disk. LNK artifacts show Stark Research Labs project files copied to an external F: USB drive on 2020-11-13, and Chrome history shows a search for the SDelete secure-deletion tool (anti-forensics intent). This is the Nov-13 unauthorized access + exfiltration the case concerns.",
+  "hypotheses": [
+    {
+      "id": 1,
+      "statement": "Memory-resident malware / injected code present",
+      "status": "disproved",
+      "confidence": 0.85,
+      "evidence": [
+        "get_process_list: 103 flags are Teams/svchost volume anomalies, no injected PE; capture is post-incident"
+      ]
+    },
+    {
+      "id": 2,
+      "statement": "Sensitive SRL files were exfiltrated to removable media on 2020-11-13",
+      "status": "confirmed",
+      "confidence": 0.95,
+      "evidence": [
+        "parse_lnk_files: 7 F: SRL-project LNKs accessed 2020-11-13"
+      ]
+    },
+    {
+      "id": 3,
+      "statement": "Actor took anti-forensic steps",
+      "status": "confirmed",
+      "confidence": 0.8,
+      "evidence": [
+        "parse_chrome_history: search for 'sdelete download' (T1070.004)"
+      ]
+    }
+  ],
+  "attack_chain": [
+    "2020-11-13 ~05:00 UTC \u2014 SRL project files (Megaforce, Blue Thunder, Wolves Lair) accessed from external F: drive (LNK targets)",
+    "2020-11-13/14 \u2014 Chrome search for SDelete secure-deletion tool (anti-forensics, T1070.004)",
+    "2020-11-16 02:32 UTC \u2014 memory captured (post-incident); RDP brute force from external IPs also present (separate, later activity)"
+  ],
+  "files_accessed": [
+    "/mnt/evidence/Users/fredr/AppData/Roaming/Microsoft/Windows/Recent/Recovered Documents.lnk",
+    "/mnt/evidence/Users/fredr/AppData/Roaming/Microsoft/Windows/Recent/blue_thunder_blueprint_by_hurricanepolymar_d3cofgo-fullview.lnk",
+    "/mnt/evidence/Users/fredr/AppData/Roaming/Microsoft/Windows/Recent/Files from SRL system.lnk",
+    "/mnt/evidence/Users/fredr/AppData/Roaming/Microsoft/Windows/Recent/Files of interest.lnk",
+    "/mnt/evidence/Users/fredr/AppData/Roaming/Microsoft/Windows/Recent/Wolves_Lair_Tech_Specs.lnk",
+    "/mnt/evidence/Users/fredr/AppData/Roaming/Microsoft/Windows/Recent/Megaforce Specs & Research.lnk",
+    "/mnt/evidence/Users/fredr/AppData/Roaming/Microsoft/Windows/Recent/Megaforce.lnk"
+  ],
+  "suspicious_processes": [
+    "MRC.exe (PID 29440) \u2014 D:\\Tools\\MRC.exe, course tool, benign",
+    "103 baseline/volume anomalies (Teams/svchost) \u2014 not malware"
+  ],
+  "mitre_techniques": [
+    "T1052.001 (Exfiltration over USB)",
+    "T1070.004 (File Deletion / SDelete)",
+    "T1005 (Data from Local System)",
+    "T1110/T1021.001 (RDP brute force \u2014 separate Nov-16 activity)"
+  ],
+  "anti_forensics": [
+    "SDelete secure-deletion tool search (browser history)"
+  ],
+  "confidence": "high",
+  "tools_used": [
+    "get_process_list",
+    "parse_lnk_files",
+    "parse_shimcache",
+    "parse_chrome_history"
+  ],
+  "evidence_counts": {
+    "lnk_total": 393,
+    "f_srl_exfil_lnks": 7,
+    "shimcache_entries": 2635,
+    "sdelete_search_found": true
+  },
+  "status": "complete",
+  "generated": "2026-06-12T12:07:01.552902+00:00"
+}

@@ -339,7 +339,7 @@ When you identify suspicious activity, map it to ATT&CK techniques:
   - [x] disk_agent fully implemented (event logs, prefetch, shimcache, LNK files via EZ Tools)
   - [x] browser_agent implemented (Chrome history, downloads, cloud exfil classification)
 - [x] **demo.py** — end-to-end deterministic pipeline (seed RAG → run investigation → generate report)
-- [x] Unit tests (75 passing, 1 skipped)
+- [x] Unit tests (97 passing, 1 skipped)
 - [x] docs/architecture.md, docs/dataset.md, docs/devpost_submission.md
 
 ### Completed — validation
@@ -490,7 +490,7 @@ DeepSIFT/
 │   └── ingest/          ← MITRE ATT&CK, IOCs, case history
 ├── benchmark/           ← Scoring vs Protocol SIFT baseline
 ├── agents/              ← LangGraph multi-agent orchestrator
-├── tests/               ← pytest unit tests (75 passing, 1 skipped)
+├── tests/               ← pytest unit tests (97 passing, 1 skipped)
 ├── analysis/            ← findings.json + forensic_audit.log (runtime)
 ├── exports/             ← raw tool outputs (runtime)
 └── yara_rules/          ← .yar rule files

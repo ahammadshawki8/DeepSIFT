@@ -9,7 +9,7 @@ forensic discipline (caveats, advisories, corroboration hints), enriches finding
 MITRE ATT&CK tags and RAG-backed threat intelligence, and enforces chain-of-custody audit
 logging before the LLM ever sees a single byte of evidence.
 
-**148 typed forensic MCP tools (+ environment preflight self-check) · 23 tool modules · 15 parser modules · Per-tool RAG enrichment · Post-hoc grounding verification · 4-axis quantified confidence scoring · 3,700+ Sigma rules via Hayabusa · 6-type contradiction detection · case-agnostic benchmark runner · zero-dependency Examiner Portal**
+**155 MCP tools (148 forensic + 7 control/utility) · 23 tool modules · 15 parser modules · Per-tool RAG enrichment · Post-hoc grounding verification · 4-axis quantified confidence scoring · 3,700+ Sigma rules via Hayabusa · 6-type contradiction detection · case-agnostic benchmark runner · zero-dependency Examiner Portal**
 
 > **Status:** Production-ready. Every tool executes a real forensic binary or parser —
 > no simulated, demo-only, or placeholder analysis paths. All evidence paths are supplied
@@ -31,11 +31,22 @@ logging before the LLM ever sees a single byte of evidence.
 - **See real output without running anything:** [`docs/sample/`](docs/sample/) holds committed
   example outputs for both cases — grounded `findings.json` + a rendered Examiner report (verdict,
   hypothesis ledger, evidence grounding, full chain of custody).
-- **Don't trust the score — verify the evidence:** `python3 verify_findings.py` independently
-  re-checks every claim against the cited raw tool output and recomputes the audit hash chain. The
-  ground-truth files are *derived from the organizer case scenario* (see each file's `_provenance`),
-  so trust rests on **reproducible grounding**, not our number.
-- **Verify in minutes (no API key):** `python3 preflight.py` · `pytest -q` (74 pass) ·
+- **Accuracy report (honest):** [`docs/accuracy_report.md`](docs/accuracy_report.md) — confirmed vs.
+  inferred labeling, the false positives our parsers emitted and how they were caught, the artifacts
+  we missed, and the limits of our testing.
+- **Self-correction in the logs (not the video):**
+  [`docs/sample/rocba_agentic_findings.json`](docs/sample/rocba_agentic_findings.json) — the agent
+  **disproved** its memory-malware hypothesis (H1) and **pivoted to disk**, recorded with confidence
+  + evidence `audit_id`s.
+- **The trace resolves on a fresh clone:** the committed [`analysis/forensic_audit.log`](analysis/forensic_audit.log)
+  (hash-chained) + the cited raw outputs under [`exports/`](exports) let you run the three-claim
+  trace and `verify_findings.py` without running an investigation yourself.
+- **Don't trust the score — verify the evidence:**
+  `python3 verify_findings.py --findings docs/sample/rocba_findings.json --analysis-dir docs/sample/rocba_analysis`
+  independently re-checks every claim against the cited raw tool output and recomputes the audit
+  hash chain (expected: grounding **100% (27/27)**, chain **INTACT**). Trust rests on **reproducible
+  grounding**, not our number.
+- **Verify in minutes (no API key):** `python3 preflight.py` · `pytest -q` (97 pass) ·
   `python3 examiner_portal.py` (review UI + live audit-chain integrity).
 - **Drive it as an agent:** connect Claude Code to the MCP server (`.mcp.json`) and ask it to
   investigate `/mnt/evidence` — disk-only is a first-class autonomous case.
@@ -682,7 +693,7 @@ python3 rag/ingest/run_all.py
 
 # Run tests
 pytest tests/
-# Expected: 75 passed, 1 skipped
+# Expected: 97 passed, 1 skipped
 ```
 
 ### Connect to Claude Code
@@ -716,12 +727,26 @@ first principles in a few minutes.
 ```bash
 # 1. Works on a fresh clone immediately:
 python3 preflight.py        # which forensic tool groups are operational here (honest, per-host)
-pytest -q                   # full test suite → 75 passed, 1 skipped
+pytest -q                   # full test suite → 97 passed, 1 skipped
 
 # 2. See a completed result instantly (committed sample — no run needed):
 #    open docs/sample/vanko_examiner_report.html  (or rocba_examiner_report.html) in a browser,
 #    or render the portal view of a sample:
 python3 examiner_portal.py --findings docs/sample/vanko_findings.json --html /tmp/review.html
+```
+
+**Verify the committed sample runs independently** (the audit trails and raw exports are committed in `docs/sample/`):
+
+```bash
+# ROCBA (FOR508 — memory + disk)
+python3 verify_findings.py --findings docs/sample/rocba_findings.json \
+    --analysis-dir docs/sample/rocba_analysis
+# Expected: grounding 100% (27/27 observable claims), chain INTACT, OVERALL ✔ VERIFIED
+
+# Vanko / Abducted Zebrafish (FOR500 — disk-only)
+python3 verify_findings.py --findings docs/sample/vanko_findings.json \
+    --analysis-dir docs/sample/vanko_analysis
+# Expected: grounding 100% (13/13 observable claims), chain INTACT, OVERALL ✔ VERIFIED
 ```
 
 After you run your own investigation (next section) the live results land in `analysis/`, and
@@ -909,7 +934,7 @@ DeepSIFT/
 │   ├── ground_truth/                ← Per-case ground-truth scoring files
 │   ├── baselines/                   ← Protocol SIFT reference findings
 │   └── reports/html_report.py       ← Visual HTML comparison report
-├── tests/                           ← pytest unit tests (74 passing, 1 skipped)
+├── tests/                           ← pytest unit tests (97 passing, 1 skipped)
 ├── yara_rules/
 │   ├── suspicious_strings.yar       ← T1059.001, T1003, T1218, T1547.001
 │   ├── webshells.yar                ← T1505.003
@@ -1039,7 +1064,7 @@ DEEPSIFT_AUDIT_KEY=
 ## Development
 
 ```bash
-# Run tests (74 passing, 1 skipped)
+# Run tests (97 passing, 1 skipped)
 pytest tests/ -v
 
 # Syntax check

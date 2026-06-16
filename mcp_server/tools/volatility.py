@@ -11,6 +11,7 @@ Every response includes:
 import json
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from mcp_server.config import VOLATILITY_CMD, MAX_TOOL_TIMEOUT, MAX_ITERATIONS
 from mcp_server.audit import (
@@ -486,7 +487,7 @@ def register_volatility_tools(mcp, rag=None):
 
     @mcp.tool()
     def verify_findings(
-        proposed_findings_json: str,
+        proposed_findings_json: Any,
         audit_ids: list,
     ) -> str:
         """

@@ -1,0 +1,1 @@
+{"id": "H3", "statement": "Anti-forensic techniques were employed to hide the intrusion (log wiping, timestomping, or secure deletion)", "rationale": "Sophisticated actors routinely clear logs or stomp timestamps; event log gaps, MFT anomalies, and prefetch records will test this"}

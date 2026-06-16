@@ -1,0 +1,1 @@
+{"id": "H1", "statement": "Unauthorized remote access occurred via a RAT or backdoor installed on the ROCBA system", "rationale": "Case premise is unauthorized access; memory triage (process list, injected code, network connections) will confirm or disprove active C2 and suspicious processes"}

@@ -43,7 +43,7 @@ and write a **tamper-evident, HMAC-signable chain of custody**. Built for the SA
 ```bash
 pip install -r requirements.txt
 python3 preflight.py                  # what's operational in this environment
-pytest -q                             # 75 passed, 1 skipped
+pytest -q                             # 97 passed, 1 skipped
 python3 rag/ingest/run_all.py         # seed the case-agnostic RAG corpus
 python3 verify_findings.py            # independently re-verify a run's claims + audit chain
 python3 examiner_portal.py --html /tmp/review.html   # render a review of analysis/findings.json

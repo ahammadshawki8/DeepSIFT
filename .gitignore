@@ -25,9 +25,13 @@ env/
 rag/db/
 rag/data/
 
-# Runtime outputs (case-specific, not for version control)
-exports/
-analysis/
+# Runtime outputs (case-specific, not for version control).
+# NOTE: we ignore the CONTENTS (exports/* , analysis/*) rather than the directories
+# themselves, so a curated, REAL evidence bundle can be re-included by the allowlist
+# at the bottom of this file. Directory-level ignores (exports/, analysis/) would make
+# per-file negation impossible (git cannot re-include a file under an excluded dir).
+exports/*
+analysis/*
 /reports/
 docs/*.html
 
@@ -71,3 +75,34 @@ desktop.ini
 
 # Local reference / development materials
 additional_details/
+
+# ── Committed per-case chain-of-custody bundles (real investigation runs) ─────
+# Everything under analysis/ and exports/ is ignored EXCEPT the per-case bundles below.
+# Committing them lets a judge independently run `verify_findings.py` on a fresh clone:
+# resolve each finding's audit_id -> the exact tool command + SHA-256 + raw output, and
+# recompute the tamper-evident hash chain. Nothing is synthesized; these are the real
+# files each run produced, kept at their original paths so the hash chain stays intact.
+# We re-include ONLY: the case audit log + findings + hypothesis ledger, and the cited
+# raw tool outputs (the top-level *.txt). The bulky EZ-Tools CSV working subdirs
+# (exports/<case>/evtx, /shellbags, /lnk, ...) stay ignored.
+!analysis/rocba/
+analysis/rocba/*
+!analysis/rocba/forensic_audit.log
+!analysis/rocba/findings.json
+!analysis/rocba/hypotheses.json
+!exports/rocba/
+exports/rocba/*
+!exports/rocba/*.txt
+
+!analysis/vanko/
+analysis/vanko/*
+!analysis/vanko/forensic_audit.log
+!analysis/vanko/findings.json
+!analysis/vanko/hypotheses.json
+!exports/vanko/
+exports/vanko/*
+!exports/vanko/*.txt
+
+# Sample audit trails for verify_findings.py (*.log global pattern would block these)
+!docs/sample/rocba_analysis/forensic_audit.log
+!docs/sample/vanko_analysis/forensic_audit.log

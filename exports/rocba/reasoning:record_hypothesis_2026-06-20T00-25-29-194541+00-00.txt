@@ -1,0 +1,1 @@
+{"id": "H2", "statement": "Sensitive data was exfiltrated \u2014 either via network (cloud/C2) or physical media (USB)", "rationale": "Unauthorized access cases typically involve data theft; browser history, cloud artifacts, USB history, and network connections will confirm or disprove"}

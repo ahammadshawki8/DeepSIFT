@@ -68,7 +68,7 @@ is asserted that you cannot confirm from the repository.
 - **Three run modes** (Claude Code + MCP / `investigate.py` / `demo.py`) and `AGENTS.md` for agents.
 
 ## 7. Honest testing of safety/reliability/hallucination/governance
-- **67 tests, 1 skipped** (`pytest -q`): parsers, guardrails, custody (incl. HMAC forgery), grounding
+- **97 passed, 1 skipped** (`pytest -q`): parsers, guardrails, custody (incl. HMAC forgery), grounding
   integrity, reasoning loop, preflight, examiner portal.
 - **Honest degradation:** missing external binaries report `unavailable` (preflight), they don't crash.
 - **Honest accuracy:** grounding is *measured per claim*; hallucination is *counted against ground

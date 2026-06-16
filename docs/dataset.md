@@ -104,7 +104,10 @@ findings and ground truth metadata derived from the scenario.
 The baseline was established by running Protocol SIFT (Claude Code + direct SIFT tools,
 no structured parsing) against `Rocba-Memory.raw` on 2026-06-11.
 
-### Score: 1/4 must-identify criteria = 25% accuracy
+### Score: 0/4 must-identify criteria = 0% accuracy
+
+All four ground-truth criteria are disk-based artifacts; the memory-only Protocol SIFT baseline
+misses every one — not because it hallucinated, but because it never touched the disk.
 
 | Must-Identify Criterion | Protocol SIFT | DeepSIFT |
 |-------------------------|:-------------:|:--------:|
@@ -113,7 +116,7 @@ no structured parsing) against `Rocba-Memory.raw` on 2026-06-11.
 | Cloud storage service usage during incident | ❌ Missed | ✔ Found |
 | Browser activity during incident window | ❌ Missed | ✔ Found |
 | **Hallucinations** | **0** | **0** |
-| **Accuracy Score** | **25%** | **100% (4/4)** |
+| **Accuracy Score** | **0%** | **100% (4/4)** |
 | **Claim grounding** | n/a (prompt-only) | **100% — every claim traced to raw evidence** |
 
 **Root cause of gaps:** Memory was captured 3 days post-incident. Protocol SIFT performed

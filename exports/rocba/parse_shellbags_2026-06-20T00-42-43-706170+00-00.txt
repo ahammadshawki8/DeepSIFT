@@ -1,0 +1,123 @@
+SBECmd version 2.1.0.0
+
+Author: Eric Zimmerman (saericzimmerman@gmail.com)
+https://github.com/EricZimmerman
+
+Command line: -d /mnt/evidence/Users/fredr --csv exports/rocba/shellbags --nl
+
+Directory to process: /mnt/evidence/Users/fredr
+Deduplication: False
+All messages will be saved to /home/sansforensics/DeepSIFT/exports/rocba/shellbags/!SBECmd_Messages.txt
+Processing /mnt/evidence/Users/fredr/AppData/Local/Packages/91750D7E.Slack_8she8kybcnzg4/SystemAppData/Helium/UserClasses.dat
+Registry hive is dirty and transaction logs were found in the same directory, but --nl was provided. Data may be missing! Continuing anyways...
+Sequence numbers do not match! Hive is dirty and the transaction logs should be reviewed for relevant data!
+	'Local Settings\Software\Microsoft\Windows\Shell\BagMRU' not found in 'mAppData\Helium\UserClasses.dat'
+---------------------------------------------------------------------
+Processing /mnt/evidence/Users/fredr/AppData/Local/Microsoft/Windows/UsrClass.dat
+Registry hive is dirty and transaction logs were found in the same directory, but --nl was provided. Data may be missing! Continuing anyways...
+Sequence numbers do not match! Hive is dirty and the transaction logs should be reviewed for relevant data!
+Message: Unmapped GUID in /mnt/evidence/Users/fredr/AppData/Local/Microsoft/Windows/UsrClass.dat! Type: Warning Detail: A ShellBag with an unmapped GUID was found Unmapped GUID: 04271989-c4d2-1641-fd8e-f477126e208e. Please send the hive to saericzimmerman@gmail.com so support can be added.: BagPath: BagMRU, Slot #: 5, Raw bytes: 3A-00-1F-42-89-19-27-04-D2-C4-41-16-FD-8E-F4-77-12-6E-20-8E-26-00-01-00-26-00-EF-BE-31-04-00-00-F8-F3-FC-A6-93-AC-D6-01-3E-8A-FF-A6-93-AC-D6-01-5F-16-5C-A7-93-AC-D6-01-14-00-00-00, Error message: A ShellBag with an unmapped GUID Unmapped GUID: 04271989-c4d2-1641-fd8e-f477126e208e was found in Bagpath Local Settings\Software\Microsoft\Windows\Shell\BagMRU, slot 5. Registry: /mnt/evidence/Users/fredr/AppData/Local/Microsoft/Windows/UsrClass.dat, Stacktrace: 
+Message: Unmapped GUID in /mnt/evidence/Users/fredr/AppData/Local/Microsoft/Windows/UsrClass.dat! Type: Warning Detail: A ShellBag with an unmapped GUID was found Unmapped GUID: 04271989-c4d2-d886-6546-56755f9d6a55. Please send the hive to saericzimmerman@gmail.com so support can be added.: BagPath: BagMRU, Slot #: 8, Raw bytes: 3A-00-1F-42-89-19-27-04-D2-C4-86-D8-65-46-56-75-5F-9D-6A-55-26-00-01-00-26-00-EF-BE-11-00-00-00-EA-BB-47-51-F3-AE-D6-01-03-2F-50-51-F3-AE-D6-01-BF-48-FE-53-F3-AE-D6-01-14-00-00-00, Error message: A ShellBag with an unmapped GUID Unmapped GUID: 04271989-c4d2-d886-6546-56755f9d6a55 was found in Bagpath Local Settings\Software\Microsoft\Windows\Shell\BagMRU, slot 8. Registry: /mnt/evidence/Users/fredr/AppData/Local/Microsoft/Windows/UsrClass.dat, Stacktrace: 
+Message: Unmapped GUID in /mnt/evidence/Users/fredr/AppData/Local/Microsoft/Windows/UsrClass.dat! Type: Warning Detail: A ShellBag with an unmapped GUID was found Unmapped GUID: e27d49c9-e61b-4f51-97e6-a461eca719e0. Please send the hive to saericzimmerman@gmail.com so support can be added.: BagPath: BagMRU, Slot #: 12, Raw bytes: 3A-00-1F-42-C9-49-7D-E2-1B-E6-51-4F-97-E6-A4-61-EC-A7-19-E0-26-00-01-00-26-00-EF-BE-31-04-00-00-73-36-72-9D-14-AC-D6-01-96-39-7D-BD-3A-B1-D6-01-E9-95-9B-BD-3A-B1-D6-01-14-00-00-00, Error message: A ShellBag with an unmapped GUID Unmapped GUID: e27d49c9-e61b-4f51-97e6-a461eca719e0 was found in Bagpath Local Settings\Software\Microsoft\Windows\Shell\BagMRU, slot 12. Registry: /mnt/evidence/Users/fredr/AppData/Local/Microsoft/Windows/UsrClass.dat, Stacktrace: 
+Message: Error parsing shellbag Type: Error Detail: Exception has been thrown by the target of an invocation.: BagPath: Local Settings\Software\Microsoft\Windows\Shell\BagMRU, Slot #: 13, Raw bytes: 3A-00-1F-42-A2-14-DA-CC-5D-B6-03-44-9C-84-21-8F-9C-50-E6-35-26-00-01-00-26-00-EF-BE-30-00-00-00-A0-E7-DF-A3-14-AC-D6-01-E9-60-9B-00-6A-B7-D6-01-4F-7E-24-01-6A-B7-D6-01-14-00-00-00, Error message: Exception has been thrown by the target of an invocation., Stacktrace:    at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+   at System.Reflection.RuntimeConstructorInfo.Invoke(BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+   at System.RuntimeType.CreateInstanceImpl(BindingFlags bindingAttr, Binder binder, Object[] args, CultureInfo culture)
+   at ShellBagsParser.RawRegistryData.ProcessRawShellBag(Int32 mru, Int32 slot, Byte[] rawBytes, String bagPath) in D:\Code\ShellBagsExplorer\ShellBags\RawRegistryData.cs:line 921
+   at ShellBagsParser.RawRegistryData.LoadRawRegistryData(RegistryHive registry, String bagPath) in D:\Code\ShellBagsExplorer\ShellBags\RawRegistryData.cs:line 182
+Message: Extension block count mismatch in /mnt/evidence/Users/fredr/AppData/Local/Microsoft/Windows/UsrClass.dat for Type ID: 0x1F! Type: Warning Detail: More extension block signatures were found in the ShellBag than have been processed!  Please send the hive to saericzimmerman@gmail.com so support can be added.: BagPath: BagMRU, Slot #: 13, Raw bytes: 3A-00-1F-42-A2-14-DA-CC-5D-B6-03-44-9C-84-21-8F-9C-50-E6-35-26-00-01-00-26-00-EF-BE-30-00-00-00-A0-E7-DF-A3-14-AC-D6-01-E9-60-9B-00-6A-B7-D6-01-4F-7E-24-01-6A-B7-D6-01-14-00-00-00, Error message: Found 1 0xbeef extensions in BagMRU slot 13: 26-00-EF-BE. Type: 1F, Stacktrace: 
+Parse time: 0.50 seconds
+
+Total ShellBags found: 149
+
+Totals by bag type
+
+Directory: 90
+Root folder: GUID: 14
+Drive letter: 6
+Variable: Users property view: 3
+Control panel category: 2
+MTP storage: 2
+MTP folder: 2
+MTP device: 1
+Zip file contents: 1
+File: 1
+Users Files Folder: 3
+Variable: 1
+Users property view: 5
+GUID: Control panel: 2
+Control Panel Category: 2
+Users property view: Drive letter: 4
+Type ID: 0x1F: 1
+Variable: HTTP URI: 9
+
+Finished processing /mnt/evidence/Users/fredr/AppData/Local/Microsoft/Windows/UsrClass.dat
+
+Exported to: /home/sansforensics/DeepSIFT/exports/rocba/shellbags/UsrClass.csv
+
+---------------------------------------------------------------------
+Processing /mnt/evidence/Users/fredr/NTUSER.DAT
+Registry hive is dirty and no transaction logs were found in the same directory. Data may be missing! Continuing anyways...
+Sequence numbers do not match! Hive is dirty and the transaction logs should be reviewed for relevant data!
+NK record at relative offset 0x3554536 missing! Skipping
+NK record at relative offset 0x5642824 missing! Skipping
+An expected value was not found at offset 0x4CDFB8. Key: ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\CIDSizeMRU
+An expected value was not found at offset 0x69726F67. Key: ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\LastVisitedPidlMRU
+An expected value was not found at offset 0x8. Key: ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Discardable\PostSetup\ShellNew
+An expected value was not found at offset 0x56B76. Key: ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\5.0\Cache\Extensible Cache\MSHist012020111520201116
+An expected value was not found at offset 0x80000004. Key: ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\5.0\Cache\Extensible Cache\MSHist012020111520201116
+An expected value was not found at offset 0x1F4. Key: ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\5.0\Cache\Extensible Cache\MSHist012020111520201116
+An expected value was not found at offset 0x4. Key: ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\5.0\Cache\Extensible Cache\MSHist012020111520201116
+An expected value was not found at offset 0x1. Key: ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\5.0\Cache\Extensible Cache\MSHist012020111520201116
+An expected value was not found at offset 0x756C6156. Key: ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\5.0\Cache\Extensible Cache\MSHist012020111520201116
+NK record at relative offset 0x6014136 is NULL! Skipping
+An expected value was not found at offset 0x107B20. Key: ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Search\Flighting\0\LocalNewBatchSize
+NK record at relative offset 0x6636976 missing! Skipping
+NK record at relative offset 0x6636288 is NULL! Skipping
+Key ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Search\Flighting\0\SearchButtonUseSearchIcon at absolute offset 0x331E58 appears to be an old reference as one was already found with HasActiveParent set. Ignoring...
+Key ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Search\Flighting\0\ProactivePrefetchIntervalMinutes at absolute offset 0x5BD448 appears to be an old reference as one was already found with HasActiveParent set. Ignoring...
+An expected value was not found at offset 0x107B60. Key: ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Search\Flighting\0\SubmitButtonGlyph
+An expected value was not found at offset 0x107B40. Key: ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Search\Flighting\0\SubmitButtonGlyphRTL
+Key ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Search\Flighting\0\SubmitButtonNarratorText at absolute offset 0x347F00 appears to be an old reference as one was already found with HasActiveParent set. Ignoring...
+Key ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Search\Flighting\0\TemplatesSyncInterval at absolute offset 0x2599F0 appears to be an old reference as one was already found with HasActiveParent set. Ignoring...
+An expected value was not found at offset 0x107BA0. Key: ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Search\Flighting\0\TemplatesSyncInterval
+An expected value was not found at offset 0x6545D0. Key: ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Search\Flighting\0\UseCloudRuleForLocationsWithEntityId
+An expected value was not found at offset 0x107B65. Key: ROOT\SOFTWARE\Microsoft\Windows\CurrentVersion\Search\Flighting\0\WideAtStartupDeltaMinWidthThreshold
+NK record at relative offset 0x6636848 missing! Skipping
+NK record at relative offset 0x7834760 missing! Skipping
+An expected value was not found at offset 0x3B9F98. Key: ROOT\SOFTWARE\Microsoft\Windows Search\ProcessedSearchRoots\4683b0e5
+An expected value was not found at offset 0x3B9FE8. Key: ROOT\SOFTWARE\Microsoft\Windows Search\ProcessedSearchRoots\4683b0e5
+An expected value was not found at offset 0x3BA018. Key: ROOT\SOFTWARE\Microsoft\Windows Search\ProcessedSearchRoots\4683b0e5
+Parse time: 0.45 seconds
+
+Total ShellBags found: 0
+
+Totals by bag type
+
+
+Finished processing /mnt/evidence/Users/fredr/NTUSER.DAT
+
+Exported to: /home/sansforensics/DeepSIFT/exports/rocba/shellbags/NTUSER.csv
+
+---------------------------------------------------------------------
+Processing /mnt/evidence/Users/fredr/AppData/Local/Packages/Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe/SystemAppData/Helium/UserClasses.dat
+	'Local Settings\Software\Microsoft\Windows\Shell\BagMRU' not found in 'mAppData\Helium\UserClasses.dat'
+---------------------------------------------------------------------
+Processing /mnt/evidence/Users/fredr/AppData/Local/Packages/AppleInc.iCloud_nzyj5cx40ttqa/SystemAppData/Helium/UserClasses.dat
+Registry hive is dirty and transaction logs were found in the same directory, but --nl was provided. Data may be missing! Continuing anyways...
+Sequence numbers do not match! Hive is dirty and the transaction logs should be reviewed for relevant data!
+	'Local Settings\Software\Microsoft\Windows\Shell\BagMRU' not found in 'mAppData\Helium\UserClasses.dat'
+---------------------------------------------------------------------
+Processing /mnt/evidence/Users/fredr/AppData/Local/Packages/Microsoft.SkypeApp_kzf8qxf38zg5c/SystemAppData/Helium/UserClasses.dat
+	'Local Settings\Software\Microsoft\Windows\Shell\BagMRU' not found in 'mAppData\Helium\UserClasses.dat'
+---------------------------------------------------------------------
+Processing /mnt/evidence/Users/fredr/AppData/Local/Packages/Microsoft.XboxGamingOverlay_8wekyb3d8bbwe/SystemAppData/Helium/UserClasses.dat
+	'Local Settings\Software\Microsoft\Windows\Shell\BagMRU' not found in 'mAppData\Helium\UserClasses.dat'
+---------------------------------------------------------------------
+
+Processing complete!
+
+Processed 7 files in 0.94 seconds!
+Total ShellBags found: 149
+
+
+

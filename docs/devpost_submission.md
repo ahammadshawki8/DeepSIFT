@@ -106,7 +106,7 @@ Five new category-specific parsers cover browser artifacts (cloud exfil domain c
 
 **Volatility output parsing is fragile.** The Volatility 3 output format varies slightly depending on plugin and OS version. We wrote defensive parsers that handle header-skipping, column count mismatches, and hex dump variations (especially for malfind, where PE header detection requires stripping address prefixes from hex bytes before pattern-matching).
 
-**The 3-day memory gap.** Our ROCBA memory image was captured 3 days after the incident. Nov 13 evidence exists only on disk. This was initially frustrating — Protocol SIFT scored 1/4 on must-identify criteria not because it hallucinated, but because it only analyzed memory. It forced us to build 16 Windows artifact tools plus 10+ registry/browser/cloud tools — which is actually the differentiating capability judges should focus on.
+**The 3-day memory gap.** Our ROCBA memory image was captured 3 days after the incident. Nov 13 evidence exists only on disk. This was initially frustrating — Protocol SIFT scored 0/4 on must-identify criteria not because it hallucinated, but because it only analyzed memory — all four ground-truth criteria are disk artifacts. It forced us to build 16 Windows artifact tools plus 10+ registry/browser/cloud tools — which is actually the differentiating capability judges should focus on.
 
 **RAG seeding on SIFT VM.** The sentence-transformers model download requires internet access from the VM, and the MITRE ATT&CK JSON is ~100MB. We scripted the full ingestion pipeline (`rag/ingest/run_all.py`) to run idempotently, but first-run setup is slow.
 
@@ -161,14 +161,14 @@ Runs on: **SANS SIFT Workstation** (Ubuntu x86-64, VirtualBox/VMware)
 
 ## Submission Checklist
 
-- [ ] 1. GitHub repo — https://github.com/ahammadshawki8/DeepSIFT (public, MIT license)
+- [x] 1. GitHub repo — https://github.com/ahammadshawki8/DeepSIFT (public, MIT license)
 - [ ] 2. Demo video — attached at submission (5 min max)
-- [ ] 3. Architecture diagram — `docs/architecture.md` in repo
-- [ ] 4. This written project description — Devpost format ✓
-- [ ] 5. Dataset documentation — `docs/dataset.md` in repo ✓
-- [ ] 6. Accuracy report — `docs/accuracy_report.md` (generated after benchmark run on SIFT VM)
-- [ ] 7. Try-it-out instructions — `README.md` in repo ✓
-- [ ] 8. Agent execution logs — `analysis/forensic_audit.log` (produced during investigation run)
+- [x] 3. Architecture diagram — `docs/architecture.md` in repo
+- [x] 4. This written project description — Devpost format
+- [x] 5. Dataset documentation — `docs/dataset.md` in repo
+- [x] 6. Accuracy report — **committed:** [`docs/accuracy_report.md`](accuracy_report.md) (confirmed vs. inferred, false positives caught, misses, methodology)
+- [x] 7. Try-it-out instructions — `README.md` in repo
+- [x] 8. Agent execution logs — **committed:** [`analysis/forensic_audit.log`](../analysis/forensic_audit.log) (hash-chained tool log) + cited raw outputs under [`exports/`](../exports); resolve any finding's `audit_id` here and re-verify with `python3 verify_findings.py`
 
 ---
 
@@ -181,7 +181,7 @@ cd DeepSIFT
 pip3 install -r requirements.txt
 cp .env.example .env && nano .env  # add ANTHROPIC_API_KEY
 python3 rag/ingest/run_all.py      # seed RAG (~5 min, first run only)
-pytest tests/ -v                   # 32/32 tests should pass
+pytest tests/ -v                   # 97 passed, 1 skipped
 
 # Add to Claude Code MCP config:
 # { "mcpServers": { "deepsift": { "command": "python3",

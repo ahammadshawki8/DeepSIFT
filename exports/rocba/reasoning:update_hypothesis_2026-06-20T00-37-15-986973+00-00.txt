@@ -1,0 +1,1 @@
+{"id": "H4", "from": "open", "to": "disproved", "confidence": 0.95, "evidence": ["dsift-2026-06-20-e2663aba"], "note": "Memory is NOT post-incident \u2014 svchost.exe PID 1248 has active C2 connections to 213.202.233.104 and 81.30.144.115 at the time of capture. Disk artifacts still needed to understand persistence and full attack chain."}

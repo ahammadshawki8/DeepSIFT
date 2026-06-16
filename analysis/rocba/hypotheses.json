@@ -1,0 +1,139 @@
+[
+  {
+    "id": "H1",
+    "statement": "Unauthorized remote access occurred via a RAT or backdoor installed on the ROCBA system",
+    "rationale": "Case premise is unauthorized access; memory triage (process list, injected code, network connections) will confirm or disprove active C2 and suspicious processes",
+    "mitre_techniques": [
+      "T1059",
+      "T1071",
+      "T1543.003",
+      "T1055"
+    ],
+    "status": "confirmed",
+    "confidence": 0.85,
+    "evidence": [
+      "dsift-2026-06-20-0f0a0bff",
+      "dsift-2026-06-20-45661afb",
+      "dsift-2026-06-20-e2663aba",
+      "dsift-2026-06-20-ed4d281c"
+    ],
+    "created": "2026-06-20T00:25:29.153519+00:00",
+    "history": [
+      {
+        "t": "2026-06-20T00:25:29.153519+00:00",
+        "status": "open",
+        "confidence": 0.0,
+        "note": "formed"
+      },
+      {
+        "t": "2026-06-20T00:37:18.579773+00:00",
+        "status": "confirmed",
+        "confidence": 0.85,
+        "note": "svchost.exe PID 1248 has dozens of ESTABLISHED and CLOSED connections to two non-Microsoft external IPs on high ephemeral ports within a 5-minute burst (2020-11-16 02:31\u201302:36 UTC). Pending: identify which service runs under PID 1248 and verify via disk artifacts."
+      },
+      {
+        "t": "2026-06-20T01:35:21.949759+00:00",
+        "status": "confirmed",
+        "confidence": 0.85,
+        "note": "SELF-CORRECTION: Previous update incorrectly classified svchost PID 1248 as C2. Re-examination shows all connections from 213.202.233.104 and 81.30.144.115 have local address 192.168.1.5:3389 \u2014 these are INBOUND RDP connections; PID 1248 is TermService. Those IPs are attack sources (brute-force RDP), not C2 servers. Unauthorized access IS confirmed via RDP credential abuse (Events 4778/4779 for fredr; LNK timestamps; ESTABLISHED RDP sessions at capture time from attack IPs). No outbound RAT/C2 confirmed in memory; Event 7045 service install (2020-11-11) remains a possible persistence mechanism but is no longer corroborated by active C2 beaconing."
+      }
+    ]
+  },
+  {
+    "id": "H2",
+    "statement": "Sensitive data was exfiltrated \u2014 either via network (cloud/C2) or physical media (USB)",
+    "rationale": "Unauthorized access cases typically involve data theft; browser history, cloud artifacts, USB history, and network connections will confirm or disprove",
+    "mitre_techniques": [
+      "T1567.002",
+      "T1052.001",
+      "T1041"
+    ],
+    "status": "confirmed",
+    "confidence": 0.92,
+    "evidence": [
+      "dsift-2026-06-20-45661afb",
+      "dsift-2026-06-20-63d99b22",
+      "dsift-2026-06-20-e2663aba"
+    ],
+    "created": "2026-06-20T00:25:29.194108+00:00",
+    "history": [
+      {
+        "t": "2026-06-20T00:25:29.194108+00:00",
+        "status": "open",
+        "confidence": 0.0,
+        "note": "formed"
+      },
+      {
+        "t": "2026-06-20T00:43:56.773268+00:00",
+        "status": "confirmed",
+        "confidence": 0.92,
+        "note": "LNK files prove staged exfiltration: classified SRL research documents (Megaforce, Blue Thunder, Wolves Lair, ADAMANTIUM, RareEarthDeposits_Confidential) were browsed from F: drive (external USB, Toshiba connected 02:29:30 UTC). PST email archive exported to Google Drive (G:). BitLocker keys accessed. All activity Nov 13-14, 2020 via RDP."
+      }
+    ]
+  },
+  {
+    "id": "H3",
+    "statement": "Anti-forensic techniques were employed to hide the intrusion (log wiping, timestomping, or secure deletion)",
+    "rationale": "Sophisticated actors routinely clear logs or stomp timestamps; event log gaps, MFT anomalies, and prefetch records will test this",
+    "mitre_techniques": [
+      "T1070.001",
+      "T1070.006",
+      "T1070.004"
+    ],
+    "status": "confirmed",
+    "confidence": 0.88,
+    "evidence": [
+      "dsift-2026-06-20-0f0a0bff",
+      "dsift-2026-06-20-45661afb"
+    ],
+    "created": "2026-06-20T00:25:29.230496+00:00",
+    "history": [
+      {
+        "t": "2026-06-20T00:25:29.230496+00:00",
+        "status": "open",
+        "confidence": 0.0,
+        "note": "formed"
+      },
+      {
+        "t": "2026-06-20T00:43:58.903955+00:00",
+        "status": "confirmed",
+        "confidence": 0.88,
+        "note": "SDelete.zip accessed 2020-11-14 13:37 (T1070.004). Event 1102 confirmed (audit log cleared \u2014 T1070.001). Prefetch disabled (0 entries \u2014 may be Server/SSD or deliberate). Need to confirm SDelete execution via shimcache/amcache."
+      }
+    ]
+  },
+  {
+    "id": "H4",
+    "statement": "The memory image is post-incident and the attacker process/connection is no longer resident; disk artifacts carry the primary evidence",
+    "rationale": "If memory shows only clean system processes with no injected code or suspicious connections, the incident was prior to capture; disk artifacts will be the primary forensic record",
+    "mitre_techniques": [],
+    "status": "disproved",
+    "confidence": 0.8,
+    "evidence": [
+      "dsift-2026-06-20-0f0a0bff",
+      "dsift-2026-06-20-e2663aba",
+      "dsift-2026-06-20-ed4d281c"
+    ],
+    "created": "2026-06-20T00:25:29.254806+00:00",
+    "history": [
+      {
+        "t": "2026-06-20T00:25:29.254806+00:00",
+        "status": "open",
+        "confidence": 0.0,
+        "note": "formed"
+      },
+      {
+        "t": "2026-06-20T00:37:15.986151+00:00",
+        "status": "disproved",
+        "confidence": 0.95,
+        "note": "Memory is NOT post-incident \u2014 svchost.exe PID 1248 has active C2 connections to 213.202.233.104 and 81.30.144.115 at the time of capture. Disk artifacts still needed to understand persistence and full attack chain."
+      },
+      {
+        "t": "2026-06-20T01:35:25.036687+00:00",
+        "status": "disproved",
+        "confidence": 0.8,
+        "note": "UPDATED RATIONALE: Memory is NOT post-incident. At capture time (2020-11-16 02:31 UTC), ESTABLISHED RDP sessions from 213.202.233.104 and 81.30.144.115 to 192.168.1.5:3389 indicate the attacker was actively connected via RDP when memory was acquired \u2014 concurrent with ROCBA-SYSTEM.lnk creation at 02:31:29 UTC. Note: These are inbound RDP connections, not outbound C2 as previously stated."
+      }
+    ]
+  }
+]

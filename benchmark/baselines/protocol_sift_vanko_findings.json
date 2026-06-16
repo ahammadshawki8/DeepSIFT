@@ -1,0 +1,74 @@
+{
+  "case_id": "VANKO-2016",
+  "case_name": "Anthony Vanko / Surface 3 / FOR500 — Protocol SIFT Disk-Only Baseline",
+  "summary": "Disk-only analysis of Microsoft Surface 3 (Windows 10 Pro, account 'PC User'). Shellbags confirm browsing of \\\\192.168.1.5\\StarkResearch\\Level 7 Classified on 2016-06-29 (20:16–20:38 UTC). Local staging directory D:\\vacation photos created as a cover; Level 7 and Level 8 Classified subdirectories created under it by 2016-06-30. UserAssist shows 7zFM.exe (7-Zip), VeraCrypt Setup 1.17.exe, IDRIX.VeraCrypt, sdelete.exe, and iCloud.exe executed. USBSTOR registry lists 9 USB mass-storage devices (SanDisk Cruzer, WD My Passport 0730, Verbatim Store-N-Go, PNY USB 3.0 FD). Raw tool output surfaced 'Biochemical' folder names and image filenames referencing molecular structures, but the specific research domain of the classified material was not named or connected to the case scenario. No grounding verification or hypothesis tracking performed.",
+  "suspicious_processes": [
+    "7zFM.exe — 7-Zip file manager (staging/archive creation)",
+    "VeraCrypt Setup 1.17.exe — VeraCrypt installer",
+    "IDRIX.VeraCrypt — VeraCrypt encryption (likely used before USB transfer)",
+    "sdelete.exe — Sysinternals secure-delete (anti-forensics, T1070.004)",
+    "iCloud.exe — Apple iCloud desktop client (secondary cloud channel)"
+  ],
+  "network_iocs": [
+    "192.168.1.5 — StarkResearch file server browsed via SMB (shellbags 2016-06-29)"
+  ],
+  "mitre_techniques": [
+    "T1039 - Data from Network Shared Drive (\\\\192.168.1.5\\StarkResearch accessed)",
+    "T1052.001 - Exfiltration Over Physical Medium (9 USB mass-storage devices in USBSTOR)",
+    "T1074.001 - Local Data Staging (D:\\vacation photos staging directory)",
+    "T1560.001 - Archive Collected Data (7zFM.exe executed)",
+    "T1070.004 - File Deletion (sdelete.exe for secure wiping)"
+  ],
+  "timeline": [
+    "2016-06-29 20:16:55 UTC — Shellbag: \\\\192.168.1.5\\StarkResearch browsed (SMB access to file server)",
+    "2016-06-29 20:18:56 UTC — Shellbag: \\\\192.168.1.5\\StarkResearch\\Level 7 Classified browsed",
+    "2016-06-29 20:19:19 UTC — Shellbag: \\\\192.168.1.5\\StarkResearch\\Level 7 Classified\\Biochemical browsed",
+    "2016-06-29 20:20–20:25 UTC — LNK files: 12 items opened from \\\\192.168.1.5\\StarkResearch including molecular imagery",
+    "2016-06-30 00:39:45 UTC — Shellbag: D:\\vacation photos\\Level 7 Classified\\Biochemical (local staging confirmed)",
+    "2016-06-30 01:36–02:05 UTC — Shellbag activity in D:\\vacation photos Level 7/8 Classified subdirectories (staging complete)"
+  ],
+  "confidence": "moderate",
+  "analysis_type": "disk_only",
+  "image_facts": {
+    "system": "Microsoft Surface 3, Windows 10 Professional",
+    "hostname": "starksurface",
+    "account": "PC User",
+    "disk_image": "surface_physical.E01 (EnCase, 21 segments)",
+    "incident_window": "2016-06-22 to 2016-06-30"
+  },
+  "usb_devices": [
+    "SanDisk Cruzer (Rev 1.26)",
+    "SanDisk Cruzer Blade (Rev 1.00)",
+    "WD My Passport 0730 (Rev 1016)",
+    "WD SES Device (companion to My Passport)",
+    "Verbatim Store-N-Go (Rev 1.00)",
+    "PNY USB 3.0 FD",
+    "Generic Flash Disk (Rev 8.07)",
+    "IS917 innostor",
+    "WIBU CodeMeter-Stick v1.0"
+  ],
+  "must_identify_scoring": {
+    "criterion_1_starkresearch_classified_access": "FOUND — Shellbags: \\\\192.168.1.5\\StarkResearch\\Level 7 Classified browsed 2016-06-29",
+    "criterion_2_research_subject_matter": "MISSED — Raw tool output showed folder names ('Biochemical') and molecular-structure image filenames from the StarkResearch server, but the specific biological research domain (classified project names, research topics) was NOT identified or named. Jump list and LNK data were not correlated to extract the specific research context; only the folder classification level and general subject area ('Biochemical') were noted.",
+    "criterion_3_exfiltration_channel": "FOUND — 9 USB mass-storage devices in USBSTOR; D:\\vacation photos local staging confirmed; iCloud.exe active",
+    "criterion_4_june_2016_timestamps": "FOUND — 2016-06-29 server browsing (20:16–20:25 UTC) and 2016-06-30 local staging (00:39–02:05 UTC) within incident window"
+  },
+  "score_vs_ground_truth": {
+    "must_identify_found": 3,
+    "must_identify_total": 4,
+    "missed": ["Criterion 2: specific classified research subject matter not named in findings"],
+    "hallucinations": 0,
+    "grounding": "not_verified"
+  },
+  "analysis_notes": [
+    "Protocol SIFT ran raw EZ Tools (SBECmd, LECmd, JLECmd, RECmd) with output passed directly to LLM without structured parsing.",
+    "Raw shellbag CSV (246 entries) and LNK CSV (224 entries) were processed; the sheer volume of entries meant no document-level correlation of classified research subjects was performed.",
+    "LNK filenames from the StarkResearch server included molecular-structure images and biochemistry references, but these were noted only as 'molecular imagery' without identifying the specific research program.",
+    "Documents in user's personal Documents folder were not investigated; their content-types and research connections to the classified material went unidentified.",
+    "No hypothesis tracking, no self-correction evidence, no grounding verification performed.",
+    "VeraCrypt encryption of staged material before USB transfer is likely (VeraCrypt in UserAssist) but not confirmed.",
+    "StarkCollector.exe (custom data-staging tool) not identified — visible in UserAssist structured output but missed in raw CSV processing.",
+    "Dropbox installer in Downloads (potential additional cloud channel) not flagged."
+  ],
+  "status": "complete"
+}

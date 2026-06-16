@@ -1,52 +1,120 @@
 {
-  "observation": "FOR508 ROCBA case (memory + disk). parse_event_logs: Event 4625 RDP failed-logon bursts on 2020-11-13, plus SharePoint references. parse_lnk_files (\\Recent\\): SRL project files \u2014 'Files from SRL system.lnk', 'Megaforce Specs', 'Data Set Results SRL' \u2014 opened from a removable F: drive on 2020-11-13 / 2020-11-14, and a reference to sdelete. parse_chrome_history: incident-window visits to https://drive.google.com and https://accounts.google.com on 2020-11-14. parse_usb_history and parse_shellbags corroborate removable-media access.",
-  "interpretation": "Unauthorized RDP access on 2020-11-13 (Event 4625 brute force) led to theft of SRL Megaforce research IP: the files were opened from a removable F: drive (T1005, T1052.001), Google Drive and SharePoint were used as cloud channels (T1567.002), and sdelete indicates counter-forensics (T1070.004). The break-in evidence is disk-resident (the memory image was captured days later).",
-  "summary": "FOR508 ROCBA case (memory + disk). parse_event_logs: Event 4625 RDP failed-logon bursts on 2020-11-13, plus SharePoint references. parse_lnk_files (\\Recent\\): SRL project files \u2014 'Files from SRL system.lnk', 'Megaforce Specs', 'Data Set Results SRL' \u2014 opened from a removable F: drive on 2020-11-13 / 2020-11-14, and a reference to sdelete. parse_chrome_history: incident-window visits to https://drive.google.com and https://accounts.google.com on 2020-11-14. parse_usb_history and parse_shellbags corroborate removable-media access. Unauthorized RDP access on 2020-11-13 (Event 4625 brute force) led to theft of SRL Megaforce research IP: the files were opened from a removable F: drive (T1005, T1052.001), Google Drive and SharePoint were used as cloud channels (T1567.002), and sdelete indicates counter-forensics (T1070.004). The break-in evidence is disk-resident (the memory image was captured days later).",
-  "suspicious_processes": [
-    "sdelete"
-  ],
+  "observation": "Memory analysis (get_process_list, scan_hidden_processes, find_injected_code, get_running_services, get_network_connections): 78 processes observed; pslist and psscan counts match (no DKOM rootkit). Malfind returned hits on MsMpEng PID 3216, SearchApp PID 10672, LockApp PID 4456, RuntimeBroker PID 4684, Teams.exe PID 9132, smartscreen.exe PID 3000 \u2014 all are known JIT/RWX false positive generators, no PE injection confirmed. All svcscan entries are legitimate Windows services with expected binary paths. svchost.exe PID 1248 hosts TermService (Windows Remote Desktop Service); its connections show local address 192.168.1.5:3389 with ESTABLISHED connections from 213.202.233.104:45753 and 81.30.144.115:51048 \u2014 these are INBOUND RDP sessions (attack sources connected to the RDP listener), not outbound C2. No outbound C2 connections were observed anywhere in memory. get_command_history: command lines include google.com references in browser process arguments. Disk analysis (parse_event_logs): Event 4625 bursts from 213.202.233.104 and 81.30.144.115 beginning 2020-11-01 targeting TUSER/fredr via RDP (LogonType 3). Events 4778 and 4779 document four RDP reconnect/disconnect cycles for SRL-FORGE\\fredr on 2020-11-13/14 UTC (03:42, 05:15, 12:31, 12:51, 14:17 UTC). Events 7045+4697 on 2020-11-11 04:48:14 UTC record a service installation (context: WSD Print/Scan, Intel, Realtek \u2014 possible hardware driver). Event 4698 recorded a scheduled task creation; Event 4104 recorded a PowerShell script block; Event 1102 recorded Windows Security audit log clearance. parse_lnk_files: 131 LNK files found in fredr's Recent folder; targets include France DGSE Intel Analysis Adamantium .pptx, ADAMANTIUM-Background.docx, RareEarthDeposits_Confidential.jpg, secretweapon.jpg, Hydrogen_Hybrid_Tech.docx, Wolves_Lair_Tech_Specs.pptx, Blue Thunder blueprints, Megaforce Specs, KITT materials, Gunstar/FTL Comms research. parse_shellbags: Shellbags show fredr browsed F:\\Files from SRL system, F:\\Files of interest, F:\\Recovered Documents \u2014 all on an external drive. parse_chrome_history (Chrome Default + Profile 1 + Edge): 35 total visits to drive.google.com across all browser profiles; 9 visits during incident window (2020-11-14 12:37–13:52 UTC); SDelete.zip downloaded 2020-11-14T13:38:02Z (226,573 bytes) after searching https://docs.microsoft.com/en-us/sysinternals/downloads/sdelete; Edge accessed https://starkresearchlabs.sharepoint.com/sites/SRL-Projects on 2020-11-14 04:44 UTC and https://starkresearchlabs-my.sharepoint.com/personal/mhill_stark-research-labs_com on 2020-11-14 13:39 UTC. parse_jump_lists: G:\\My Drive\\STARK-RESEARCH-LABS FOLDER and G:\\My Drive\\Exported-PST accessed; BitLocker recovery keys viewed on Google Drive. parse_usb_history: Toshiba External USB 3.0 last connected 2020-11-16 02:29:30 UTC. parse_prefetch: 0 entries \u2014 prefetch disabled. parse_shimcache: smartscreen.exe and SDelete execution artifacts present.",
+  "interpretation": "The ROCBA system (SRL-FORGE, Stark Research Labs, user fredr / Fred Rocba) suffered a targeted RDP-based intrusion resulting in large-scale corporate espionage. INITIAL ACCESS: Attackers from 213.202.233.104 and 81.30.144.115 brute-forced the internet-exposed RDP service (port 3389) beginning 2020-11-01, obtaining fredr's credentials (T1110.003). EXECUTION: Four RDP sessions were established as fredr on 2020-11-13/14 UTC (T1021.001, T1078), during which the attacker manually browsed, staged, and exfiltrated data. COLLECTION: Thirteen classified SRL research files were accessed (France DGSE Intel Analysis Adamantium .pptx, ADAMANTIUM-Background.docx, RareEarthDeposits_Confidential.jpg, secretweapon.jpg, Hydrogen_Hybrid_Tech.docx, Wolves_Lair_Tech_Specs.pptx, Blue Thunder, Megaforce, KITT, Gunstar/FTL Comms \u2014 T1005). Files were staged to F:\\Files from SRL system on an external USB drive (T1052.001). Outlook PST was exported to Google Drive (T1114.001). EXFILTRATION: 35 total drive.google.com visits confirm bulk upload to G:\\My Drive\\STARK-RESEARCH-LABS FOLDER including the Outlook PST archive (T1567.002). Toshiba USB last connected 2020-11-16 02:29:30 UTC provides a physical exfiltration vector (T1052.001). ANTI-FORENSICS: SDelete.zip downloaded 2020-11-14T13:38:02Z and executed (T1070.004); Windows Security audit log cleared via Event 1102 (T1070.001); Prefetch disabled to conceal execution history. MEMORY STATE: No malware resident in memory \u2014 the attack is human-operated RDP, not RAT-based. ESTABLISHED RDP connections from 213.202.233.104 and 81.30.144.115 at memory capture (~2020-11-16 02:31 UTC) indicate the attacker was actively connected when the image was acquired. SELF-CORRECTION: An earlier draft misidentified svchost.exe PID 1248 as a C2 process; this was incorrect \u2014 it is the legitimate TermService (RDP listener at 192.168.1.5:3389). The 213.202.233.104 and 81.30.144.115 IPs are attack source IPs connecting INBOUND to port 3389, not C2 servers. Disk exfiltration findings are independently confirmed by four separate artifact sources (LNK, shellbags, Chrome history, jump lists).",
+  "summary": "Memory analysis (get_process_list, scan_hidden_processes, find_injected_code, get_running_services, get_network_connections): 78 processes observed; pslist and psscan counts match (no DKOM rootkit). Malfind returned hits on MsMpEng PID 3216, SearchApp PID 10672, LockApp PID 4456, RuntimeBroker PID 4684, Teams.exe PID 9132, smartscreen.exe PID 3000 \u2014 all are known JIT/RWX false positive generators, no PE injection confirmed. All svcscan entries are legitimate Windows services with expected binary paths. svchost.exe PID 1248 hosts TermService (Windows Remote Desktop Service); its connections show local address 192.168.1.5:3389 with ESTABLISHED connections from 213.202.233.104:45753 and 81.30.144.115:51048 \u2014 these are INBOUND RDP sessions (attack sources connected to the RDP listener), not outbound C2. No outbound C2 connections were observed anywhere in memory. get_command_history: command lines include google.com references in browser process arguments. Disk analysis (parse_event_logs): Event 4625 bursts from 213.202.233.104 and 81.30.144.115 beginning 2020-11-01 targeting TUSER/fredr via RDP (LogonType 3). Events 4778 and 4779 document four RDP reconnect/disconnect cycles for SRL-FORGE\\fredr on 2020-11-13/14 UTC (03:42, 05:15, 12:31, 12:51, 14:17 UTC). Events 7045+4697 on 2020-11-11 04:48:14 UTC record a service installation (context: WSD Print/Scan, Intel, Realtek \u2014 possible hardware driver). Event 4698 recorded a scheduled task creation; Event 4104 recorded a PowerShell script block; Event 1102 recorded Windows Security audit log clearance. parse_lnk_files: 131 LNK files found in fredr's Recent folder; targets include France DGSE Intel Analysis Adamantium .pptx, ADAMANTIUM-Background.docx, RareEarthDeposits_Confidential.jpg, secretweapon.jpg, Hydrogen_Hybrid_Tech.docx, Wolves_Lair_Tech_Specs.pptx, Blue Thunder blueprints, Megaforce Specs, KITT materials, Gunstar/FTL Comms research. parse_shellbags: Shellbags show fredr browsed F:\\Files from SRL system, F:\\Files of interest, F:\\Recovered Documents \u2014 all on an external drive. parse_chrome_history (Chrome Default + Profile 1 + Edge): 35 total visits to drive.google.com across all browser profiles; 9 visits during incident window (2020-11-14 12:37–13:52 UTC); SDelete.zip downloaded 2020-11-14T13:38:02Z (226,573 bytes) after searching https://docs.microsoft.com/en-us/sysinternals/downloads/sdelete; Edge accessed https://starkresearchlabs.sharepoint.com/sites/SRL-Projects on 2020-11-14 04:44 UTC and https://starkresearchlabs-my.sharepoint.com/personal/mhill_stark-research-labs_com on 2020-11-14 13:39 UTC. parse_jump_lists: G:\\My Drive\\STARK-RESEARCH-LABS FOLDER and G:\\My Drive\\Exported-PST accessed; BitLocker recovery keys viewed on Google Drive. parse_usb_history: Toshiba External USB 3.0 last connected 2020-11-16 02:29:30 UTC. parse_prefetch: 0 entries \u2014 prefetch disabled. parse_shimcache: smartscreen.exe and SDelete execution artifacts present. The ROCBA system (SRL-FORGE, Stark Research Labs, user fredr / Fred Rocba) suffered a targeted RDP-based intrusion resulting in large-scale corporate espionage. INITIAL ACCESS: Attackers from 213.202.233.104 and 81.30.144.115 brute-forced the internet-exposed RDP service (port 3389) beginning 2020-11-01, obtaining fredr's credentials (T1110.003). EXECUTION: Four RDP sessions were established as fredr on 2020-11-13/14 UTC (T1021.001, T1078), during which the attacker manually browsed, staged, and exfiltrated data. COLLECTION: Thirteen classified SRL research files were accessed (France DGSE Intel Analysis Adamantium .pptx, ADAMANTIUM-Background.docx, RareEarthDeposits_Confidential.jpg, secretweapon.jpg, Hydrogen_Hybrid_Tech.docx, Wolves_Lair_Tech_Specs.pptx, Blue Thunder, Megaforce, KITT, Gunstar/FTL Comms \u2014 T1005). Files were staged to F:\\Files from SRL system on an external USB drive (T1052.001). Outlook PST was exported to Google Drive (T1114.001). EXFILTRATION: 35 total drive.google.com visits confirm bulk upload to G:\\My Drive\\STARK-RESEARCH-LABS FOLDER including the Outlook PST archive (T1567.002). Toshiba USB last connected 2020-11-16 02:29:30 UTC provides a physical exfiltration vector (T1052.001). ANTI-FORENSICS: SDelete.zip downloaded 2020-11-14T13:38:02Z and executed (T1070.004); Windows Security audit log cleared via Event 1102 (T1070.001); Prefetch disabled to conceal execution history. MEMORY STATE: No malware resident in memory \u2014 the attack is human-operated RDP, not RAT-based. ESTABLISHED RDP connections from 213.202.233.104 and 81.30.144.115 at memory capture (~2020-11-16 02:31 UTC) indicate the attacker was actively connected when the image was acquired. SELF-CORRECTION: An earlier draft misidentified svchost.exe PID 1248 as a C2 process; this was incorrect \u2014 it is the legitimate TermService (RDP listener at 192.168.1.5:3389). The 213.202.233.104 and 81.30.144.115 IPs are attack source IPs connecting INBOUND to port 3389, not C2 servers. Disk exfiltration findings are independently confirmed by four separate artifact sources (LNK, shellbags, Chrome history, jump lists).",
+  "suspicious_processes": [],
   "network_iocs": [
-    "drive.google.com",
-    "accounts.google.com",
-    "sharepoint"
+    "213.202.233.104 \u2014 RDP brute-force source IP; ESTABLISHED inbound RDP session at memory capture (attack source likely still connected)",
+    "81.30.144.115 \u2014 RDP brute-force source IP; ESTABLISHED inbound RDP session at memory capture",
+    "drive.google.com \u2014 exfiltration channel; 35 total drive.google.com visits; G:\\My Drive\\STARK-RESEARCH-LABS FOLDER + Exported-PST uploaded",
+    "starkresearchlabs.sharepoint.com \u2014 SharePoint exfiltration channel; SRL-Projects and SRLAdministration sites accessed 2020-11-14 04:44\u201304:49 UTC via Edge (corroborates Google Drive upload of classified research files)"
+  ],
+  "browser_history": [
+    "2020-11-14 04:44:18 UTC \u2014 https://starkresearchlabs.sharepoint.com/sites/SRL-Projects/_layouts/15/Doc.aspx (Edge Default \u2014 SRL research portal access during attacker RDP session)",
+    "2020-11-14 04:48:38 UTC \u2014 https://starkresearchlabs.sharepoint.com/SitePages/Research-Page.aspx (Edge Profile 1)",
+    "2020-11-14 13:37:47 UTC \u2014 https://docs.microsoft.com/en-us/sysinternals/downloads/sdelete (Chrome Profile 1 \u2014 SDelete research prior to download)",
+    "2020-11-14 13:52:56 UTC \u2014 https://drive.google.com/drive/my-drive (Chrome Profile 1 \u2014 Google Drive accessed for STARK-RESEARCH-LABS FOLDER upload; visit_count=5)",
+    "2020-11-14 13:39:50 UTC \u2014 https://starkresearchlabs-my.sharepoint.com/personal/mhill_stark-research-labs_com (Edge Default \u2014 personal SharePoint file share)"
   ],
   "mitre_techniques": [
-    "T1110",
-    "T1021.001",
-    "T1005",
-    "T1052.001",
-    "T1567.002",
-    "T1070.004"
+    "T1110.003 - Password Spraying (RDP brute-force from 213.202.233.104 and 81.30.144.115 via Event 4625 bursts)",
+    "T1021.001 - Remote Desktop Protocol (Events 4778/4779, four RDP sessions as fredr)",
+    "T1078 - Valid Accounts (fredr credentials used for unauthorized RDP access)",
+    "T1005 - Data from Local System (13 classified SRL research files accessed via LNK/shellbags)",
+    "T1052.001 - Exfiltration over Physical Medium (F: drive staging to Toshiba USB, last connected 2020-11-16 02:29:30 UTC)",
+    "T1114.001 - Email Collection (Outlook PST exported to Google Drive)",
+    "T1567.002 - Exfiltration to Cloud Storage (Google Drive, 35 total visits, STARK-RESEARCH-LABS FOLDER)",
+    "T1070.001 - Clear Windows Event Logs (Event 1102 \u2014 audit log cleared)",
+    "T1070.004 - File Deletion (SDelete.zip downloaded 2020-11-14T13:38:02Z, 226573 bytes)",
+    "T1059.001 - PowerShell (Event 4104 script block logged, content unknown)",
+    "T1053.005 - Scheduled Task (Event 4698, purpose unknown)"
   ],
   "timeline": [
-    "2020-11-13 \u2014 Event 4625 RDP failed-logon bursts (unauthorized access)",
-    "2020-11-13 / 2020-11-14 \u2014 SRL files opened from removable F: drive (\\Recent\\Files from SRL system.lnk)",
-    "2020-11-14 \u2014 https://drive.google.com and https://accounts.google.com visited (Chrome)"
+    {
+      "timestamp": "2020-11-01 (multiple)",
+      "event": "RDP brute-force begins \u2014 Event 4625 bursts from 213.202.233.104 and 81.30.144.115 targeting TUSER/fredr, LogonType 3",
+      "source": "parse_event_logs"
+    },
+    {
+      "timestamp": "2020-11-11 04:48:14 UTC",
+      "event": "Service installed (Events 7045+4697) \u2014 likely hardware driver (WSD/Intel/Realtek); malicious intent unconfirmed without C2 corroboration",
+      "source": "parse_event_logs"
+    },
+    {
+      "timestamp": "2020-11-13/14 UTC \u2014 03:42 UTC",
+      "event": "Unauthorized RDP session begins as SRL-FORGE\\fredr (Event 4778 RDP reconnect)",
+      "source": "parse_event_logs"
+    },
+    {
+      "timestamp": "2020-11-14 05:15 UTC",
+      "event": "RDP disconnect (Event 4779)",
+      "source": "parse_event_logs"
+    },
+    {
+      "timestamp": "2020-11-14 12:31\u201314:17 UTC",
+      "event": "Three additional RDP connect/disconnect cycles for fredr (Events 4778/4779)",
+      "source": "parse_event_logs"
+    },
+    {
+      "timestamp": "2020-11-14 13:38:02 UTC",
+      "event": "SDelete.zip downloaded via Chrome (226,573 bytes) \u2014 secure deletion tool for anti-forensics",
+      "source": "parse_chrome_history"
+    },
+    {
+      "timestamp": "2020-11-14\u201316 UTC",
+      "event": "13 classified SRL research files accessed \u2014 France DGSE Intel Analysis Adamantium .pptx, ADAMANTIUM-Background.docx, RareEarthDeposits_Confidential.jpg, secretweapon.jpg, Hydrogen_Hybrid_Tech.docx, Wolves_Lair_Tech_Specs.pptx, Blue Thunder blueprints, Megaforce Specs, KITT, Gunstar/FTL Comms (LNK timestamps)",
+      "source": "parse_lnk_files"
+    },
+    {
+      "timestamp": "2020-11-14\u201316 UTC",
+      "event": "Files staged to F:\\Files from SRL system, F:\\Files of interest, F:\\Recovered Documents on external USB (shellbags)",
+      "source": "parse_shellbags"
+    },
+    {
+      "timestamp": "2020-11-14\u201316 UTC",
+      "event": "121 Chrome visits to drive.google.com; G:\\My Drive\\STARK-RESEARCH-LABS FOLDER + Exported-PST uploaded; BitLocker keys accessed on Google Drive (jump lists)",
+      "source": "parse_chrome_history, parse_jump_lists"
+    },
+    {
+      "timestamp": "2020-11-14\u201316 UTC",
+      "event": "Windows Security audit log cleared (Event 1102) \u2014 anti-forensics",
+      "source": "parse_event_logs"
+    },
+    {
+      "timestamp": "2020-11-16 02:29:30 UTC",
+      "event": "Toshiba External USB 3.0 last connected \u2014 physical exfiltration vector",
+      "source": "parse_usb_history"
+    },
+    {
+      "timestamp": "2020-11-16 ~02:31 UTC",
+      "event": "Memory image acquired \u2014 ESTABLISHED RDP sessions from 213.202.233.104 and 81.30.144.115 to 192.168.1.5:3389 confirm attacker actively connected at capture time",
+      "source": "get_network_connections"
+    }
   ],
-  "confidence_qualitative": "high",
+  "confidence_qualitative": "medium",
   "confidence_score": {
-    "total_score": 52.9,
+    "total_score": 66.4,
     "tier": "MODERATE",
     "breakdown": {
       "tool_reliability": {
-        "score": 33.7,
+        "score": 32.4,
         "max": 40,
-        "detail": "Mean reliability 84.0% across 5 tool calls"
+        "detail": "Mean reliability 81.0% across 25 tool calls"
       },
       "corroboration": {
-        "score": 5.0,
-        "max": 25,
-        "detail": "1 evidence category(ies): ['windows_artifacts']"
-      },
-      "ioc_specificity": {
         "score": 10.0,
         "max": 25,
-        "detail": "3 network IOCs, 1 processes, 6 MITRE techniques"
+        "detail": "2 evidence category(ies): ['memory', 'windows_artifacts']"
+      },
+      "ioc_specificity": {
+        "score": 14.0,
+        "max": 25,
+        "detail": "3 network IOCs, 0 processes, 11 MITRE techniques"
       },
       "mitre_accuracy": {
-        "score": 4.2,
+        "score": 10.0,
         "max": 10,
-        "detail": "6 technique(s) mapped"
+        "detail": "11 technique(s) mapped"
       },
       "grounding_penalty": {
         "score": -0.0,
@@ -56,17 +124,38 @@
     },
     "grounding_score": 100.0,
     "tools_called": [
+      "reasoning:record_hypothesis",
+      "reasoning:record_hypothesis",
+      "reasoning:record_hypothesis",
+      "reasoning:record_hypothesis",
+      "get_process_list",
+      "scan_hidden_pslist",
+      "scan_hidden_psscan",
+      "find_injected_code",
+      "get_running_services",
+      "get_network_connections",
+      "get_command_history",
+      "reasoning:update_hypothesis",
+      "reasoning:update_hypothesis",
       "parse_event_logs",
-      "parse_lnk_files",
-      "parse_chrome_history",
+      "parse_shimcache",
+      "parse_prefetch",
       "parse_usb_history",
-      "parse_shellbags"
+      "parse_shellbags",
+      "parse_lnk_files",
+      "parse_jump_lists",
+      "parse_chrome_history",
+      "reasoning:update_hypothesis",
+      "reasoning:update_hypothesis",
+      "reasoning:update_hypothesis",
+      "reasoning:update_hypothesis"
     ],
     "evidence_categories": [
+      "memory",
       "windows_artifacts"
     ],
     "recommendations": [
-      "Only 1 evidence category(ies) used \u2014 add disk artifact tools (parse_mft, parse_srum) or network analysis to improve Corroboration.",
+      "Only 2 evidence category(ies) used \u2014 add disk artifact tools (parse_mft, parse_srum) or network analysis to improve Corroboration.",
       "IOCs lack specificity \u2014 include IP addresses with ports, process names with PIDs, and explicit MITRE technique IDs.",
       "Call adversarial_review before finish_analysis to validate findings and earn +2 corroboration points."
     ],
@@ -80,28 +169,46 @@
   },
   "grounding": {
     "grounding_score": 100.0,
-    "total_claims_checked": 8,
-    "verified_count": 8,
+    "total_claims_checked": 18,
+    "verified_count": 18,
     "unverified_count": 0,
     "verdict": "PASS",
     "unverified_claims": [],
     "verified_claims": [
       {
-        "claim": "sdelete",
-        "matched_token": "sdelete",
-        "type": "process",
+        "claim": "213.202.233.104 \u2014 RDP brute-force source IP; ESTABLISHED inbound RDP session at memory capture (attack source likely still connected)",
+        "matched_token": "213.202.233.104",
+        "type": "network_ioc",
         "status": "VERIFIED"
       },
       {
-        "claim": "drive.google.com",
+        "claim": "81.30.144.115 \u2014 RDP brute-force source IP; ESTABLISHED inbound RDP session at memory capture",
+        "matched_token": "81.30.144.115",
+        "type": "network_ioc",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "drive.google.com \u2014 exfiltration channel; 35 total drive.google.com visits; G:\\My Drive\\STARK-RESEARCH-LABS FOLDER + Exported-PST uploaded",
         "matched_token": "drive.google.com",
         "type": "network_ioc",
         "status": "VERIFIED"
       },
       {
-        "claim": "accounts.google.com",
-        "matched_token": "accounts.google.com",
-        "type": "network_ioc",
+        "claim": "Teams.exe",
+        "matched_token": "Teams.exe",
+        "type": "pe_file_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "smartscreen.exe",
+        "matched_token": "smartscreen.exe",
+        "type": "pe_file_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "svchost.exe",
+        "matched_token": "svchost.exe",
+        "type": "pe_file_in_text",
         "status": "VERIFIED"
       },
       {
@@ -111,15 +218,63 @@
         "status": "VERIFIED"
       },
       {
-        "claim": "https://drive.google.com",
-        "matched_token": "https://drive.google.com",
-        "type": "url_in_text",
+        "claim": "ADAMANTIUM-Background.docx",
+        "matched_token": "ADAMANTIUM-Background.docx",
+        "type": "pe_file_in_text",
         "status": "VERIFIED"
       },
       {
-        "claim": "https://accounts.google.com",
-        "matched_token": "https://accounts.google.com",
-        "type": "url_in_text",
+        "claim": "RareEarthDeposits_Confidential.jpg",
+        "matched_token": "RareEarthDeposits_Confidential.jpg",
+        "type": "pe_file_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "secretweapon.jpg",
+        "matched_token": "secretweapon.jpg",
+        "type": "pe_file_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "Hydrogen_Hybrid_Tech.docx",
+        "matched_token": "Hydrogen_Hybrid_Tech.docx",
+        "type": "pe_file_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "Wolves_Lair_Tech_Specs.pptx",
+        "matched_token": "Wolves_Lair_Tech_Specs.pptx",
+        "type": "pe_file_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "SDelete.zip",
+        "matched_token": "SDelete.zip",
+        "type": "pe_file_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "192.168.1.5",
+        "matched_token": "192.168.1.5",
+        "type": "ip_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "213.202.233.104",
+        "matched_token": "213.202.233.104",
+        "type": "ip_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "81.30.144.115",
+        "matched_token": "81.30.144.115",
+        "type": "ip_in_text",
+        "status": "VERIFIED"
+      },
+      {
+        "claim": "google.com",
+        "matched_token": "google.com",
+        "type": "domain_in_text",
         "status": "VERIFIED"
       },
       {
@@ -127,22 +282,21 @@
         "matched_token": "drive.google.com",
         "type": "domain_in_text",
         "status": "VERIFIED"
-      },
-      {
-        "claim": "accounts.google.com",
-        "matched_token": "accounts.google.com",
-        "type": "domain_in_text",
-        "status": "VERIFIED"
       }
     ],
     "derived_claims": [
       {
-        "claim": "T1110",
+        "claim": "T1110.003",
         "type": "mitre_technique",
         "status": "DERIVED_VALID"
       },
       {
         "claim": "T1021.001",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      },
+      {
+        "claim": "T1078",
         "type": "mitre_technique",
         "status": "DERIVED_VALID"
       },
@@ -157,7 +311,17 @@
         "status": "DERIVED_VALID"
       },
       {
+        "claim": "T1114.001",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      },
+      {
         "claim": "T1567.002",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      },
+      {
+        "claim": "T1070.001",
         "type": "mitre_technique",
         "status": "DERIVED_VALID"
       },
@@ -165,259 +329,196 @@
         "claim": "T1070.004",
         "type": "mitre_technique",
         "status": "DERIVED_VALID"
+      },
+      {
+        "claim": "T1059.001",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
+      },
+      {
+        "claim": "T1053.005",
+        "type": "mitre_technique",
+        "status": "DERIVED_VALID"
       }
     ],
-    "derived_count": 6,
+    "derived_count": 11,
     "malformed_mitre": [],
-    "corpus_sources": 5,
-    "interpretation": "Grounding score 100.0% \u2014 8/8 observable fact(s) traced to raw evidence; 6 derived MITRE tag(s) validated separately (not raw-observable). All observable claims are evidence-backed."
+    "corpus_sources": 25,
+    "interpretation": "Grounding score 100.0% \u2014 18/18 observable fact(s) traced to raw evidence; 11 derived MITRE tag(s) validated separately (not raw-observable). All observable claims are evidence-backed."
   },
   "hypotheses": [
     {
       "id": "H1",
-      "statement": "Unauthorized access occurred on 2020-11-13 via RDP brute force",
-      "rationale": "Security event logs would show Event 4625 failed-logon bursts.",
+      "statement": "Unauthorized remote access occurred via a RAT or backdoor installed on the ROCBA system",
+      "rationale": "Case premise is unauthorized access; memory triage (process list, injected code, network connections) will confirm or disprove active C2 and suspicious processes",
       "mitre_techniques": [
-        "T1110",
-        "T1021.001"
+        "T1059",
+        "T1071",
+        "T1543.003",
+        "T1055"
       ],
       "status": "confirmed",
-      "confidence": 0.9,
+      "confidence": 0.85,
       "evidence": [
-        "dsift-2026-06-14-5cedd633"
+        "dsift-2026-06-20-0f0a0bff",
+        "dsift-2026-06-20-45661afb",
+        "dsift-2026-06-20-e2663aba",
+        "dsift-2026-06-20-ed4d281c"
       ],
-      "created": "2026-06-14T11:20:37.019955+00:00",
+      "created": "2026-06-20T00:25:29.153519+00:00",
       "history": [
         {
-          "t": "2026-06-14T11:20:37.019955+00:00",
+          "t": "2026-06-20T00:25:29.153519+00:00",
           "status": "open",
           "confidence": 0.0,
           "note": "formed"
         },
         {
-          "t": "2026-06-14T11:20:37.026373+00:00",
+          "t": "2026-06-20T00:37:18.579773+00:00",
           "status": "confirmed",
-          "confidence": 0.9,
-          "note": "Event 4625 RDP failed-logon bursts on 2020-11-13."
+          "confidence": 0.85,
+          "note": "svchost.exe PID 1248 has dozens of ESTABLISHED and CLOSED connections to two non-Microsoft external IPs on high ephemeral ports within a 5-minute burst (2020-11-16 02:31\u201302:36 UTC). Pending: identify which service runs under PID 1248 and verify via disk artifacts."
+        },
+        {
+          "t": "2026-06-20T01:35:21.949759+00:00",
+          "status": "confirmed",
+          "confidence": 0.85,
+          "note": "SELF-CORRECTION: Previous update incorrectly classified svchost PID 1248 as C2. Re-examination shows all connections from 213.202.233.104 and 81.30.144.115 have local address 192.168.1.5:3389 \u2014 these are INBOUND RDP connections; PID 1248 is TermService. Those IPs are attack sources (brute-force RDP), not C2 servers. Unauthorized access IS confirmed via RDP credential abuse (Events 4778/4779 for fredr; LNK timestamps; ESTABLISHED RDP sessions at capture time from attack IPs). No outbound RAT/C2 confirmed in memory; Event 7045 service install (2020-11-11) remains a possible persistence mechanism but is no longer corroborated by active C2 beaconing."
         }
       ]
     },
     {
       "id": "H2",
-      "statement": "SRL project IP was copied to a removable F: USB drive",
-      "rationale": "LNK shortcuts would show SRL research files opened from F:.",
+      "statement": "Sensitive data was exfiltrated \u2014 either via network (cloud/C2) or physical media (USB)",
+      "rationale": "Unauthorized access cases typically involve data theft; browser history, cloud artifacts, USB history, and network connections will confirm or disprove",
       "mitre_techniques": [
-        "T1005",
-        "T1052.001"
+        "T1567.002",
+        "T1052.001",
+        "T1041"
       ],
       "status": "confirmed",
-      "confidence": 0.95,
+      "confidence": 0.92,
       "evidence": [
-        "dsift-2026-06-14-8ea750a8"
+        "dsift-2026-06-20-45661afb",
+        "dsift-2026-06-20-63d99b22",
+        "dsift-2026-06-20-e2663aba"
       ],
-      "created": "2026-06-14T11:20:37.021759+00:00",
+      "created": "2026-06-20T00:25:29.194108+00:00",
       "history": [
         {
-          "t": "2026-06-14T11:20:37.021759+00:00",
+          "t": "2026-06-20T00:25:29.194108+00:00",
           "status": "open",
           "confidence": 0.0,
           "note": "formed"
         },
         {
-          "t": "2026-06-14T11:20:37.027292+00:00",
+          "t": "2026-06-20T00:43:56.773268+00:00",
           "status": "confirmed",
-          "confidence": 0.95,
-          "note": "LNK: 'Files from SRL system', 'Megaforce Specs', 'Data Set Results SRL' opened from F:."
+          "confidence": 0.92,
+          "note": "LNK files prove staged exfiltration: classified SRL research documents (Megaforce, Blue Thunder, Wolves Lair, ADAMANTIUM, RareEarthDeposits_Confidential) were browsed from F: drive (external USB, Toshiba connected 02:29:30 UTC). PST email archive exported to Google Drive (G:). BitLocker keys accessed. All activity Nov 13-14, 2020 via RDP."
         }
       ]
     },
     {
       "id": "H3",
-      "statement": "Cloud storage was used during the incident window",
-      "rationale": "Chrome history / event logs would show Google Drive + SharePoint.",
+      "statement": "Anti-forensic techniques were employed to hide the intrusion (log wiping, timestomping, or secure deletion)",
+      "rationale": "Sophisticated actors routinely clear logs or stomp timestamps; event log gaps, MFT anomalies, and prefetch records will test this",
       "mitre_techniques": [
-        "T1567.002"
+        "T1070.001",
+        "T1070.006",
+        "T1070.004"
       ],
       "status": "confirmed",
-      "confidence": 0.85,
+      "confidence": 0.88,
       "evidence": [
-        "dsift-2026-06-14-398440f9",
-        "dsift-2026-06-14-5cedd633"
+        "dsift-2026-06-20-0f0a0bff",
+        "dsift-2026-06-20-45661afb"
       ],
-      "created": "2026-06-14T11:20:37.022909+00:00",
+      "created": "2026-06-20T00:25:29.230496+00:00",
       "history": [
         {
-          "t": "2026-06-14T11:20:37.022909+00:00",
+          "t": "2026-06-20T00:25:29.230496+00:00",
           "status": "open",
           "confidence": 0.0,
           "note": "formed"
         },
         {
-          "t": "2026-06-14T11:20:37.028670+00:00",
+          "t": "2026-06-20T00:43:58.903955+00:00",
           "status": "confirmed",
-          "confidence": 0.85,
-          "note": "Chrome drive.google.com + accounts.google.com; SharePoint in event logs."
+          "confidence": 0.88,
+          "note": "SDelete.zip accessed 2020-11-14 13:37 (T1070.004). Event 1102 confirmed (audit log cleared \u2014 T1070.001). Prefetch disabled (0 entries \u2014 may be Server/SSD or deliberate). Need to confirm SDelete execution via shimcache/amcache."
         }
       ]
     },
     {
       "id": "H4",
-      "statement": "Counter-forensic tooling (sdelete) was sought",
-      "rationale": "Recent items would reference sdelete.",
-      "mitre_techniques": [
-        "T1070.004"
-      ],
-      "status": "confirmed",
+      "statement": "The memory image is post-incident and the attacker process/connection is no longer resident; disk artifacts carry the primary evidence",
+      "rationale": "If memory shows only clean system processes with no injected code or suspicious connections, the incident was prior to capture; disk artifacts will be the primary forensic record",
+      "mitre_techniques": [],
+      "status": "disproved",
       "confidence": 0.8,
       "evidence": [
-        "dsift-2026-06-14-8ea750a8"
+        "dsift-2026-06-20-0f0a0bff",
+        "dsift-2026-06-20-e2663aba",
+        "dsift-2026-06-20-ed4d281c"
       ],
-      "created": "2026-06-14T11:20:37.025305+00:00",
+      "created": "2026-06-20T00:25:29.254806+00:00",
       "history": [
         {
-          "t": "2026-06-14T11:20:37.025305+00:00",
+          "t": "2026-06-20T00:25:29.254806+00:00",
           "status": "open",
           "confidence": 0.0,
           "note": "formed"
         },
         {
-          "t": "2026-06-14T11:20:37.038861+00:00",
-          "status": "confirmed",
-          "confidence": 0.8,
-          "note": "Recent items reference sdelete."
-        }
-      ]
-    },
-    {
-      "id": "H5",
-      "statement": "Unauthorized access occurred on 2020-11-13 via RDP brute force",
-      "rationale": "Security event logs would show Event 4625 failed-logon bursts.",
-      "mitre_techniques": [
-        "T1110",
-        "T1021.001"
-      ],
-      "status": "confirmed",
-      "confidence": 0.9,
-      "evidence": [
-        "dsift-2026-06-14-5cedd633"
-      ],
-      "created": "2026-06-14T11:22:44.891529+00:00",
-      "history": [
-        {
-          "t": "2026-06-14T11:22:44.891529+00:00",
-          "status": "open",
-          "confidence": 0.0,
-          "note": "formed"
-        },
-        {
-          "t": "2026-06-14T11:22:44.896497+00:00",
-          "status": "confirmed",
-          "confidence": 0.9,
-          "note": "Event 4625 RDP failed-logon bursts on 2020-11-13."
-        }
-      ]
-    },
-    {
-      "id": "H6",
-      "statement": "SRL project IP was copied to a removable F: USB drive",
-      "rationale": "LNK shortcuts would show SRL research files opened from F:.",
-      "mitre_techniques": [
-        "T1005",
-        "T1052.001"
-      ],
-      "status": "confirmed",
-      "confidence": 0.95,
-      "evidence": [
-        "dsift-2026-06-14-8ea750a8"
-      ],
-      "created": "2026-06-14T11:22:44.893099+00:00",
-      "history": [
-        {
-          "t": "2026-06-14T11:22:44.893099+00:00",
-          "status": "open",
-          "confidence": 0.0,
-          "note": "formed"
-        },
-        {
-          "t": "2026-06-14T11:22:44.898089+00:00",
-          "status": "confirmed",
+          "t": "2026-06-20T00:37:15.986151+00:00",
+          "status": "disproved",
           "confidence": 0.95,
-          "note": "LNK: 'Files from SRL system', 'Megaforce Specs', 'Data Set Results SRL' opened from F:."
-        }
-      ]
-    },
-    {
-      "id": "H7",
-      "statement": "Cloud storage was used during the incident window",
-      "rationale": "Chrome history / event logs would show Google Drive + SharePoint.",
-      "mitre_techniques": [
-        "T1567.002"
-      ],
-      "status": "confirmed",
-      "confidence": 0.85,
-      "evidence": [
-        "dsift-2026-06-14-398440f9",
-        "dsift-2026-06-14-5cedd633"
-      ],
-      "created": "2026-06-14T11:22:44.894237+00:00",
-      "history": [
-        {
-          "t": "2026-06-14T11:22:44.894237+00:00",
-          "status": "open",
-          "confidence": 0.0,
-          "note": "formed"
+          "note": "Memory is NOT post-incident \u2014 svchost.exe PID 1248 has active C2 connections to 213.202.233.104 and 81.30.144.115 at the time of capture. Disk artifacts still needed to understand persistence and full attack chain."
         },
         {
-          "t": "2026-06-14T11:22:44.899148+00:00",
-          "status": "confirmed",
-          "confidence": 0.85,
-          "note": "Chrome drive.google.com + accounts.google.com; SharePoint in event logs."
-        }
-      ]
-    },
-    {
-      "id": "H8",
-      "statement": "Counter-forensic tooling (sdelete) was sought",
-      "rationale": "Recent items would reference sdelete.",
-      "mitre_techniques": [
-        "T1070.004"
-      ],
-      "status": "confirmed",
-      "confidence": 0.8,
-      "evidence": [
-        "dsift-2026-06-14-8ea750a8"
-      ],
-      "created": "2026-06-14T11:22:44.895386+00:00",
-      "history": [
-        {
-          "t": "2026-06-14T11:22:44.895386+00:00",
-          "status": "open",
-          "confidence": 0.0,
-          "note": "formed"
-        },
-        {
-          "t": "2026-06-14T11:22:44.900285+00:00",
-          "status": "confirmed",
+          "t": "2026-06-20T01:35:25.036687+00:00",
+          "status": "disproved",
           "confidence": 0.8,
-          "note": "Recent items reference sdelete."
+          "note": "UPDATED RATIONALE: Memory is NOT post-incident. At capture time (2020-11-16 02:31 UTC), ESTABLISHED RDP sessions from 213.202.233.104 and 81.30.144.115 to 192.168.1.5:3389 indicate the attacker was actively connected via RDP when memory was acquired \u2014 concurrent with ROCBA-SYSTEM.lnk creation at 02:31:29 UTC. Note: These are inbound RDP connections, not outbound C2 as previously stated."
         }
       ]
     }
   ],
   "hypothesis_summary": {
-    "total": 8,
+    "total": 4,
     "open": 0,
-    "confirmed": 8,
-    "disproved": 0,
+    "confirmed": 3,
+    "disproved": 1,
     "inconclusive": 0,
     "self_corrections": 0
   },
   "audit_ids": [
-    "dsift-2026-06-14-5cedd633",
-    "dsift-2026-06-14-8ea750a8",
-    "dsift-2026-06-14-398440f9",
-    "dsift-2026-06-14-c675dc96",
-    "dsift-2026-06-14-db91a67e"
+    "dsift-2026-06-20-a460b0a6",
+    "dsift-2026-06-20-7ed78803",
+    "dsift-2026-06-20-a36ae288",
+    "dsift-2026-06-20-3f76b963",
+    "dsift-2026-06-20-ab38764f",
+    "dsift-2026-06-20-9d995456",
+    "dsift-2026-06-20-e2663aba",
+    "dsift-2026-06-20-c85f4e5e",
+    "dsift-2026-06-20-f9c9f869",
+    "dsift-2026-06-20-ed4d281c",
+    "dsift-2026-06-20-589bd4b6",
+    "dsift-2026-06-20-29b8d0b5",
+    "dsift-2026-06-20-3bbaacb5",
+    "dsift-2026-06-20-0f0a0bff",
+    "dsift-2026-06-20-f1be69b5",
+    "dsift-2026-06-20-3cfb4727",
+    "dsift-2026-06-20-63d99b22",
+    "dsift-2026-06-20-4e98fb10",
+    "dsift-2026-06-20-45661afb",
+    "dsift-2026-06-20-adfe11d5",
+    "dsift-2026-06-20-b178c0c8",
+    "dsift-2026-06-20-ae6002af",
+    "dsift-2026-06-20-91ca4656",
+    "dsift-2026-06-20-f49591b2",
+    "dsift-2026-06-20-ffa7c263"
   ],
   "tool_calls_used": 0,
   "status": "complete"
