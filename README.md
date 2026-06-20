@@ -874,7 +874,7 @@ Scored dimensions: MITRE Recall · IOC Recall · Narrative Recall · Hallucinati
 ```
 DeepSIFT/
 ├── mcp_server/
-│   ├── server.py                    ← MCP server entry point (148 tools, 23 modules)
+│   ├── server.py                    ← MCP server entry point (155 tools, 23 modules)
 │   ├── config.py                    ← Tool paths, environment config
 │   ├── audit.py                     ← audit_id generation, tool counter, chain-of-custody log
 │   ├── tools/
